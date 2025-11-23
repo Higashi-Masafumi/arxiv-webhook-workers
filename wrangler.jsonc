@@ -25,7 +25,7 @@
     }
   ],
   "vars": {
-    "WORKER_URL": "https://arxiv-webhook-workers.cruiseeast.workers.dev/"
+    "WORKER_URL": "https://arxiv-webhook-workers.cruiseeast.workers.dev"
   },
   "observability": {
     "enabled": true,
