@@ -69,21 +69,38 @@ export class NotionAuthService {
 
   /**
    * 認可コードをアクセストークンに交換
+   * 注: SDK の oauth.token() は Buffer を使うため Workers で動かない
+   * 代わりに生の fetch を使用
    */
   async exchangeCodeForToken(code: string): Promise<OauthTokenResponse> {
     try {
-      const params: OauthTokenParameters & {
-        client_id: string;
-        client_secret: string;
-      } = {
-        grant_type: "authorization_code",
-        code,
-        redirect_uri: `${this.env.WORKER_URL}/notion/callback`,
-        client_id: this.env.NOTION_CLIENT_ID,
-        client_secret: this.env.NOTION_CLIENT_SECRET,
-      };
+      // Basic 認証用のヘッダーを作成（Workers 互換）
+      const credentials = btoa(
+        `${this.env.NOTION_CLIENT_ID}:${this.env.NOTION_CLIENT_SECRET}`
+      );
 
-      return await this.client.oauth.token(params);
+      const response = await fetch("https://api.notion.com/v1/oauth/token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Basic ${credentials}`,
+          "Notion-Version": "2025-09-03",
+        },
+        body: JSON.stringify({
+          grant_type: "authorization_code",
+          code,
+          redirect_uri: `${this.env.WORKER_URL}/notion/callback`,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new AuthenticationError(
+          `Failed to exchange code for token: ${error}`
+        );
+      }
+
+      return (await response.json()) as OauthTokenResponse;
     } catch (error) {
       throw new AuthenticationError(
         `Failed to exchange code for token: ${
@@ -95,20 +112,35 @@ export class NotionAuthService {
 
   /**
    * トークンをリフレッシュ
+   * 注: SDK の oauth.token() は Buffer を使うため Workers で動かない
+   * 代わりに生の fetch を使用
    */
   async refreshAccessToken(refreshToken: string): Promise<OauthTokenResponse> {
     try {
-      const params: OauthTokenParameters & {
-        client_id: string;
-        client_secret: string;
-      } = {
-        grant_type: "refresh_token",
-        refresh_token: refreshToken,
-        client_id: this.env.NOTION_CLIENT_ID,
-        client_secret: this.env.NOTION_CLIENT_SECRET,
-      };
+      // Basic 認証用のヘッダーを作成（Workers 互換）
+      const credentials = btoa(
+        `${this.env.NOTION_CLIENT_ID}:${this.env.NOTION_CLIENT_SECRET}`
+      );
 
-      return await this.client.oauth.token(params);
+      const response = await fetch("https://api.notion.com/v1/oauth/token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Basic ${credentials}`,
+          "Notion-Version": "2025-09-03",
+        },
+        body: JSON.stringify({
+          grant_type: "refresh_token",
+          refresh_token: refreshToken,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new AuthenticationError(`Failed to refresh token: ${error}`);
+      }
+
+      return (await response.json()) as OauthTokenResponse;
     } catch (error) {
       throw new AuthenticationError(
         `Failed to refresh token: ${
