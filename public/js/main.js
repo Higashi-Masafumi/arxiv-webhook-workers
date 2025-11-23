@@ -5,14 +5,16 @@ document.addEventListener("DOMContentLoaded", () => {
     btn.addEventListener("click", handleCopy);
   });
 
-  // Check URL parameters for success page
-  if (window.location.pathname.includes("success.html")) {
+  // Check for success page elements
+  const dbLink = document.getElementById("database-link");
+  const urlElement = document.getElementById("webhook-url");
+
+  if (dbLink || urlElement) {
     const params = new URLSearchParams(window.location.search);
     const databaseId = params.get("database_id");
     const workerUrl = params.get("worker_url");
 
     // データベースリンクの設定
-    const dbLink = document.getElementById("database-link");
     if (databaseId && dbLink) {
       // NotionのURL形式: https://notion.so/{database_id_without_hyphens}
       const notionDatabaseId = databaseId.replace(/-/g, "");
@@ -25,7 +27,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // Webhook URLの設定
-    const urlElement = document.getElementById("webhook-url");
     if (workerUrl && urlElement) {
       const webhookUrl = `${workerUrl}/notion/webhook`;
       urlElement.textContent = webhookUrl;
