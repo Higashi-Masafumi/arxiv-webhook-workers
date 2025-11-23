@@ -9,12 +9,7 @@
   "triggers": {
     "crons": ["0 */6 * * *"]
   },
-  "routes": [
-    {
-      "pattern": "arxiv-webhook.utstudent-scienceblog.com",
-      "custom_domain": true
-    }
-  ],
+  "route": "arxiv-webhook.utstudent-scienceblog.com/*",
   "d1_databases": [
     {
       "binding": "arxiv_notion_db",
