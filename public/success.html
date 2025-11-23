@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>連携完了 - ArXiv Webhook</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      }
+
+      .container {
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        max-width: 800px;
+        width: 100%;
+        padding: 48px;
+      }
+
+      .success-icon {
+        font-size: 4rem;
+        text-align: center;
+        margin-bottom: 24px;
+      }
+
+      h1 {
+        font-size: 2.5rem;
+        color: #1a202c;
+        margin-bottom: 16px;
+        font-weight: 700;
+        text-align: center;
+      }
+
+      .subtitle {
+        font-size: 1.125rem;
+        color: #4a5568;
+        margin-bottom: 32px;
+        line-height: 1.6;
+        text-align: center;
+      }
+
+      .database-link {
+        display: inline-block;
+        background: #2d3748;
+        color: white;
+        padding: 16px 32px;
+        border-radius: 8px;
+        text-decoration: none;
+        font-size: 1.125rem;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        margin: 24px 0;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.1);
+        text-align: center;
+        display: block;
+        width: fit-content;
+        margin-left: auto;
+        margin-right: auto;
+      }
+
+      .database-link:hover {
+        background: #1a202c;
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+      }
+
+      .section {
+        margin: 32px 0;
+        padding: 24px;
+        background: #f7fafc;
+        border-radius: 12px;
+      }
+
+      .section h2 {
+        font-size: 1.25rem;
+        color: #2d3748;
+        margin-bottom: 16px;
+      }
+
+      .section ol {
+        list-style: decimal;
+        padding-left: 24px;
+        color: #4a5568;
+      }
+
+      .section li {
+        padding: 8px 0;
+        line-height: 1.6;
+      }
+
+      .section code {
+        background: #e2e8f0;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.9em;
+        font-family: "Monaco", "Courier New", monospace;
+      }
+
+      .section pre {
+        background: #e2e8f0;
+        padding: 16px;
+        border-radius: 8px;
+        overflow-x: auto;
+        margin-top: 12px;
+        font-family: "Monaco", "Courier New", monospace;
+        font-size: 0.9rem;
+      }
+
+      .note {
+        margin-top: 32px;
+        padding: 16px;
+        background: #fff5f5;
+        border-left: 4px solid #fc8181;
+        border-radius: 4px;
+        font-size: 0.875rem;
+        color: #742a2a;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="success-icon">✅</div>
+      <h1>連携が完了しました</h1>
+      <p class="subtitle">ArXiv Papers データベースが作成されました</p>
+
+      <a id="database-link" href="#" class="database-link" target="_blank">
+        データベースを開く
+      </a>
+
+      <div class="section">
+        <h2>次のステップ</h2>
+        <p style="margin-bottom: 16px; color: #4a5568">
+          Notion Automation を設定して、論文 URL
+          を入力すると自動的にメタデータが取得されるようにします。
+        </p>
+        <ol>
+          <li>Notion で上記データベースを開く</li>
+          <li>右上の「...」→「Automations」→「New automation」</li>
+          <li>トリガー: 「When a page is updated」</li>
+          <li>アクション: 「Send HTTP request」</li>
+          <li>URL: <code id="webhook-url"></code></li>
+          <li>Method: <code>POST</code></li>
+          <li>
+            Body: 以下を設定
+            <pre>{{page}}</pre>
+          </li>
+        </ol>
+      </div>
+
+      <div class="section">
+        <h2>使い方</h2>
+        <ol>
+          <li>データベースに新しいページを作成</li>
+          <li>
+            Link プロパティに ArXiv URL を入力（例:
+            <code>https://arxiv.org/abs/2301.12345</code>）
+          </li>
+          <li>数秒後、自動的にタイトル・著者・要約が入力されます</li>
+        </ol>
+      </div>
+
+      <div class="note">
+        <strong>注意:</strong>
+        初回の Automation 設定後、Link
+        プロパティを更新すると自動的にメタデータが取得されます。
+      </div>
+    </div>
+
+    <script>
+      // URL パラメータから値を取得
+      const params = new URLSearchParams(window.location.search);
+      const databaseId = params.get("database_id");
+      const workerUrl = params.get("worker_url");
+
+      if (databaseId) {
+        // データベースリンクを設定
+        const databaseLink = document.getElementById("database-link");
+        const notionUrl = `https://notion.so/${databaseId.replace(/-/g, "")}`;
+        databaseLink.href = notionUrl;
+      }
+
+      if (workerUrl) {
+        // Webhook URL を設定
+        const webhookUrlElement = document.getElementById("webhook-url");
+        webhookUrlElement.textContent = `${workerUrl}/notion/webhook`;
+      }
+    </script>
+  </body>
+</html>

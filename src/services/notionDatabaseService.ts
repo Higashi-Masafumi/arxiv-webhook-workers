@@ -7,67 +7,51 @@ import { NotionApiError } from "../utils/errors";
  */
 export class NotionDatabaseService {
   /**
-   * ArXiv 用のワークスペースを自動セットアップ
-   * 1. ワークスペース直下にプライベートページを作成
-   * 2. そのページ配下にデータベースを作成
+   * ArXiv 用のデータベースを自動セットアップ
+   * ワークスペース直下にデータベースを直接作成
    */
   async setupArxivWorkspace(
     accessToken: string
-  ): Promise<{ databaseId: string; pageId: string }> {
+  ): Promise<{ databaseId: string; pageId: string | null }> {
     const notion = new Client({
       auth: accessToken,
       fetch: fetch.bind(globalThis),
     });
 
     try {
-      // 1. ワークスペース直下にプライベートページを作成
-      const page = await notion.pages.create({
+      // ワークスペース直下にデータベースを直接作成
+      const database = await notion.databases.create({
         parent: {
           type: "workspace",
           workspace: true,
         },
-        properties: {
-          title: {
-            title: [
-              {
-                type: "text",
-                text: { content: "ArXiv Papers" },
-              },
-            ],
-          },
-        },
-      });
-
-      // 2. そのページ配下にデータベースを作成
-      const database = await notion.databases.create({
-        parent: {
-          type: "page_id",
-          page_id: page.id,
-        },
         title: [
           {
             type: "text",
-            text: { content: "ArXiv Papers Database" },
+            text: { content: "ArXiv Papers" },
           },
         ],
         initial_data_source: {
           properties: {
             Title: {
+              type: "title",
               title: {},
             },
             Authors: {
+              type: "rich_text",
               rich_text: {},
             },
             Summary: {
+              type: "rich_text",
               rich_text: {},
             },
             Link: {
+              type: "url",
               url: {},
             },
             "Publication Year": {
-              number: {
-                format: "number",
-              },
+              type: "number",
+              number: {},
             },
           },
         },
@@ -75,7 +59,7 @@ export class NotionDatabaseService {
 
       return {
         databaseId: database.id,
-        pageId: page.id,
+        pageId: null, // ワークスペース直下なので親ページなし
       };
     } catch (error) {
       throw new NotionApiError(

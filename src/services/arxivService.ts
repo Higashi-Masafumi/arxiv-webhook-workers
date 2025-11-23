@@ -4,6 +4,7 @@ import { extractArxivId } from "../utils/validation";
 
 /**
  * ArXiv サービス
+ * @see https://info.arxiv.org/help/api/basics.html
  */
 export class ArxivService {
   private readonly API_BASE_URL = "http://export.arxiv.org/api/query";
@@ -55,26 +56,39 @@ export class ArxivService {
   }
 
   /**
-   * ArXiv API の XML レスポンスをパース
+   * ArXiv API の Atom XML レスポンスをパース
+   * @see https://info.arxiv.org/help/api/basics.html
+   *
+   * XML構造:
+   * <feed>
+   *   <title>ArXiv Query: ...</title>  <- フィード全体のタイトル
+   *   <id>...</id>                      <- フィード全体のID
+   *   <entry>
+   *     <id>http://arxiv.org/abs/...</id>     <- 論文のID
+   *     <title>論文タイトル</title>
+   *     <summary>論文要約</summary>
+   *     <author><name>著者名</name></author>
+   *     <published>2023-01-15T...</published>
+   *   </entry>
+   * </feed>
    */
   private parseArxivXml(xml: string): ArxivPaper {
-    // タイトルを抽出
-    const titleMatch = xml.match(/<title>(.+?)<\/title>/s);
-    if (!titleMatch || titleMatch.index === 0) {
-      // 最初の<title>はフィード全体のタイトルなのでスキップ
-      const secondTitleMatch = xml.match(
-        /<title>.*?<\/title>.*?<title>(.+?)<\/title>/s
-      );
-      if (!secondTitleMatch) {
-        throw new ArxivApiError("Failed to parse title from ArXiv response");
-      }
-      var title = this.normalizeText(secondTitleMatch[1]);
-    } else {
-      var title = this.normalizeText(titleMatch[1]);
+    // entry タグ内のコンテンツを抽出
+    const entryMatch = xml.match(/<entry[^>]*>([\s\S]*?)<\/entry>/);
+    if (!entryMatch) {
+      throw new ArxivApiError("No entry found in ArXiv response");
     }
+    const entryXml = entryMatch[1];
 
-    // 著者を抽出
-    const authorMatches = xml.matchAll(/<name>(.+?)<\/name>/g);
+    // タイトルを抽出（entry内のtitle）
+    const titleMatch = entryXml.match(/<title[^>]*>(.+?)<\/title>/s);
+    if (!titleMatch) {
+      throw new ArxivApiError("Failed to parse title from ArXiv response");
+    }
+    const title = this.normalizeText(titleMatch[1]);
+
+    // 著者を抽出（entry内の全てのname要素）
+    const authorMatches = entryXml.matchAll(/<name[^>]*>(.+?)<\/name>/g);
     const authors = Array.from(authorMatches, (match) =>
       this.normalizeText(match[1])
     );
@@ -83,28 +97,22 @@ export class ArxivService {
       throw new ArxivApiError("Failed to parse authors from ArXiv response");
     }
 
-    // 要約を抽出
-    const summaryMatch = xml.match(/<summary>(.+?)<\/summary>/s);
+    // 要約を抽出（entry内のsummary）
+    const summaryMatch = entryXml.match(/<summary[^>]*>(.+?)<\/summary>/s);
     if (!summaryMatch) {
       throw new ArxivApiError("Failed to parse summary from ArXiv response");
     }
     const summary = this.normalizeText(summaryMatch[1]);
 
-    // リンクを抽出
-    const linkMatch = xml.match(/<id>(.+?)<\/id>/s);
-    if (!linkMatch || linkMatch.index === 0) {
-      // 最初の<id>はフィード全体のIDなのでスキップ
-      const secondLinkMatch = xml.match(/<id>.*?<\/id>.*?<id>(.+?)<\/id>/s);
-      if (!secondLinkMatch) {
-        throw new ArxivApiError("Failed to parse link from ArXiv response");
-      }
-      var link = secondLinkMatch[1].trim();
-    } else {
-      var link = linkMatch[1].trim();
+    // リンクを抽出（entry内のid要素）
+    const linkMatch = entryXml.match(/<id[^>]*>(.+?)<\/id>/s);
+    if (!linkMatch) {
+      throw new ArxivApiError("Failed to parse link from ArXiv response");
     }
+    const link = linkMatch[1].trim();
 
-    // 公開日を抽出
-    const publishedMatch = xml.match(/<published>(.+?)<\/published>/);
+    // 公開日を抽出（entry内のpublished要素）
+    const publishedMatch = entryXml.match(/<published[^>]*>(.+?)<\/published>/);
     if (!publishedMatch) {
       throw new ArxivApiError(
         "Failed to parse published date from ArXiv response"
