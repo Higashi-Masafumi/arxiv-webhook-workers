@@ -11,7 +11,7 @@
   },
   "routes": [
     {
-      "pattern": "arxiv-webhook.utstudent-scienceblog.com",
+      "pattern": "arxiv-webhook.utstudent-scienceblog.com/*",
       "custom_domain": true
     }
   ],
@@ -31,7 +31,7 @@
     }
   ],
   "vars": {
-    "WORKER_URL": "https://arxiv-webhook.utstudent-scienceblog.com/"
+    "WORKER_URL": "https://arxiv-webhook.utstudent-scienceblog.com"
   },
   "observability": {
     "enabled": true,
