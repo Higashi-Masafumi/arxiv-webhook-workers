@@ -253,3 +253,36 @@ h2 {
   align-items: center;
   justify-content: center;
 }
+
+/* Footer */
+.site-footer {
+  margin-top: 60px;
+  padding-top: 32px;
+  border-top: 1px solid var(--border-color);
+  text-align: center;
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.footer-links {
+  margin-bottom: 16px;
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+}
+
+.footer-links a {
+  color: #666;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.footer-links a:hover {
+  color: var(--text-color);
+  text-decoration: underline;
+}
+
+.copyright {
+  font-size: 0.8rem;
+  color: #888;
+}
