@@ -121,7 +121,7 @@ export class IntegrationService {
       );
     } catch (error) {
       throw new DatabaseError(
-        `Failed to get integration: ${
+        `Failed to get integration for database_id: ${databaseId}: ${
           error instanceof Error ? error.message : String(error)
         }`
       );

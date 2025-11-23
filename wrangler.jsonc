@@ -9,6 +9,13 @@
   "triggers": {
     "crons": ["0 */6 * * *"]
   },
+  "routes": [
+    {
+      "pattern": "arxiv-webhook.utstudent-scienceblog.com",
+      "custom_domain": true
+    }
+  ],
+  "workers_dev": true,
   "d1_databases": [
     {
       "binding": "arxiv_notion_db",
@@ -25,7 +32,7 @@
     }
   ],
   "vars": {
-    "WORKER_URL": "https://arxiv-webhook-workers.cruiseeast.workers.dev"
+    "WORKER_URL": "https://arxiv-webhook.utstudent-scienceblog.com"
   },
   "observability": {
     "enabled": true,
