@@ -31,7 +31,7 @@
     }
   ],
   "vars": {
-    "WORKER_URL": "https://arxiv-webhook-workers.cruiseeast.workers.dev"
+    "WORKER_URL": "https://arxiv-webhook.utstudent-scienceblog.com/"
   },
   "observability": {
     "enabled": true,
