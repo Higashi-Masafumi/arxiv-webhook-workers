@@ -141,12 +141,8 @@ function generateSuccessPage(
       <li>URL: <code>${workerUrl}/notion/webhook</code></li>
       <li>Method: <code>POST</code></li>
       <li>
-        Body: JSON形式で以下を設定
-        <pre>{
-  "workspace_id": "${workspaceId}",
-  "page_id": "{{page_id}}",
-  "link": "{{Link}}"
-}</pre>
+        Body: 以下を設定
+        <pre>{{page}}</pre>
       </li>
     </ol>
 

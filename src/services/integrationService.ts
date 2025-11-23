@@ -109,6 +109,26 @@ export class IntegrationService {
   }
 
   /**
+   * Integration を取得（database_id で検索）
+   */
+  async getIntegrationByDatabaseId(
+    databaseId: string
+  ): Promise<Integration | null> {
+    try {
+      return await this.d1.getOne<Integration>(
+        `SELECT * FROM integrations WHERE database_id = ?`,
+        databaseId
+      );
+    } catch (error) {
+      throw new DatabaseError(
+        `Failed to get integration: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  }
+
+  /**
    * Integration を更新
    */
   async updateIntegration(

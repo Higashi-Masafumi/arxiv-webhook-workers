@@ -90,21 +90,14 @@ pnpm wrangler d1 execute arxiv-notion-db --remote --file=./migrations/0002_add_p
 
 ### 2. Notion Automation の設定
 
-1. Notion で ArXiv Papers データベースを開く
+1. Notion で ArXiv Papers Database を開く
 2. 右上の「...」→「Automations」→「New automation」
 3. トリガー: 「When a page is updated」
 4. アクション: 「Send HTTP request」
 5. 設定:
    - **URL**: `https://your-worker.workers.dev/notion/webhook`
    - **Method**: `POST`
-   - **Body**:
-     ```json
-     {
-       "workspace_id": "your-workspace-id",
-       "page_id": "{{page_id}}",
-       "link": "{{Link}}"
-     }
-     ```
+   - **Body**: `{{page}}`（これだけで OK！）
 
 ### 3. 論文情報の自動取得
 
