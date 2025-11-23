@@ -19,7 +19,7 @@ export interface Integration {
   refresh_token: string;
   token_expires_at: string | null; // ISO 8601
   database_id: string | null;
-  duplicated_template_id: string | null;
+  parent_page_id: string | null; // ArXiv Papers ページの ID
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
 }
@@ -52,7 +52,7 @@ export interface CreateIntegrationInput {
   refresh_token: string;
   token_expires_at?: string | null;
   database_id?: string | null;
-  duplicated_template_id?: string | null;
+  parent_page_id?: string | null;
 }
 
 /**

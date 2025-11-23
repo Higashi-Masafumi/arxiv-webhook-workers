@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { HonoEnv } from "../../types/bindings";
+import type { OauthTokenResponse } from "@notionhq/client/build/src/api-endpoints";
 import { NotionAuthService } from "../../services/notionAuthService";
 import { NotionDatabaseService } from "../../services/notionDatabaseService";
 import { IntegrationService } from "../../services/integrationService";
@@ -26,7 +27,9 @@ app.get("/", async (c) => {
   await authService.verifyState(state);
 
   // 2. アクセストークン・リフレッシュトークン取得
-  const tokenData = await authService.exchangeCodeForToken(code);
+  const tokenData: OauthTokenResponse = await authService.exchangeCodeForToken(
+    code
+  );
 
   // 3. Workspace 保存
   await integrationService.upsertWorkspace({
@@ -35,10 +38,9 @@ app.get("/", async (c) => {
     workspace_icon: tokenData.workspace_icon,
   });
 
-  // 4. データベース検索または作成
-  const database = await dbService.findOrCreateArxivDatabase(
-    tokenData.access_token,
-    tokenData.duplicated_template_id
+  // 4. ArXiv ワークスペースを自動セットアップ（ページ + データベース作成）
+  const { databaseId, pageId } = await dbService.setupArxivWorkspace(
+    tokenData.access_token
   );
 
   // 5. Integration 保存
@@ -46,17 +48,18 @@ app.get("/", async (c) => {
     bot_id: tokenData.bot_id,
     workspace_id: tokenData.workspace_id,
     access_token: tokenData.access_token,
-    refresh_token: tokenData.refresh_token,
+    refresh_token: tokenData.refresh_token ?? "", // refresh_token が null の場合は空文字列
     token_expires_at: new Date(
       Date.now() + 7 * 24 * 60 * 60 * 1000
     ).toISOString(),
-    database_id: database.id,
-    duplicated_template_id: tokenData.duplicated_template_id,
+    database_id: databaseId,
+    parent_page_id: pageId,
   });
 
   // 6. 成功ページ表示
   const successHtml = generateSuccessPage(
-    database.id,
+    databaseId,
+    pageId,
     tokenData.workspace_id,
     c.env.WORKER_URL
   );
@@ -69,6 +72,7 @@ app.get("/", async (c) => {
  */
 function generateSuccessPage(
   databaseId: string,
+  pageId: string,
   workspaceId: string,
   workerUrl: string
 ): string {
@@ -109,8 +113,18 @@ function generateSuccessPage(
   <body>
     <h1>✅ 連携が完了しました</h1>
     <p>
+      ArXiv Papers ページ:
+      <a href="https://notion.so/${pageId.replace(
+        /-/g,
+        ""
+      )}" target="_blank">ページを開く</a>
+    </p>
+    <p>
       データベース:
-      <a href="https://notion.so/${databaseId}" target="_blank">ArXiv Papers</a>
+      <a href="https://notion.so/${databaseId.replace(
+        /-/g,
+        ""
+      )}" target="_blank">ArXiv Papers Database</a>
     </p>
 
     <h2>次のステップ</h2>

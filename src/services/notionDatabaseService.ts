@@ -7,115 +7,79 @@ import { NotionApiError } from "../utils/errors";
  */
 export class NotionDatabaseService {
   /**
-   * データベースを検索または作成
+   * ArXiv 用のワークスペースを自動セットアップ
+   * 1. ワークスペース直下にプライベートページを作成
+   * 2. そのページ配下にデータベースを作成
    */
-  async findOrCreateArxivDatabase(
-    accessToken: string,
-    duplicatedTemplateId: string | null
-  ): Promise<{ id: string }> {
-    const notion = new Client({
-      auth: accessToken,
-      fetch: fetch.bind(globalThis),
-    });
-
-    // データベースを検索
-    try {
-      const searchResponse = await notion.search({
-        filter: {
-          value: "data_source",
-          property: "object",
-        },
-        sort: {
-          direction: "descending",
-          timestamp: "last_edited_time",
-        },
-      });
-
-      // "ArXiv Papers" という名前のデータベースを探す
-      const arxivDatabase = searchResponse.results.find((result) => {
-        // data_source オブジェクトをチェック
-        if ("title" in result) {
-          const title = result.title[0];
-          return (
-            title &&
-            "plain_text" in title &&
-            title.plain_text === "ArXiv Papers"
-          );
-        }
-        return false;
-      });
-
-      if (arxivDatabase) {
-        return { id: arxivDatabase.id };
-      }
-
-      // 見つからない場合は新規作成
-      const parentPageId = duplicatedTemplateId || undefined;
-      if (!parentPageId) {
-        throw new NotionApiError(
-          "No database found and no parent page ID provided"
-        );
-      }
-
-      return await this.createArxivDatabase(accessToken, parentPageId);
-    } catch (error) {
-      throw new NotionApiError(
-        `Failed to find or create database: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    }
-  }
-
-  /**
-   * ArXiv データベースを作成
-   */
-  async createArxivDatabase(
-    accessToken: string,
-    parentPageId: string
-  ): Promise<{ id: string }> {
+  async setupArxivWorkspace(
+    accessToken: string
+  ): Promise<{ databaseId: string; pageId: string }> {
     const notion = new Client({
       auth: accessToken,
       fetch: fetch.bind(globalThis),
     });
 
     try {
-      const database = await notion.dataSources.create({
+      // 1. ワークスペース直下にプライベートページを作成
+      const page = await notion.pages.create({
         parent: {
-          type: "database_id",
-          database_id: parentPageId,
+          type: "workspace",
+          workspace: true,
+        },
+        properties: {
+          title: {
+            title: [
+              {
+                type: "text",
+                text: { content: "ArXiv Papers" },
+              },
+            ],
+          },
+        },
+      });
+
+      // 2. そのページ配下にデータベースを作成
+      const database = await notion.databases.create({
+        parent: {
+          type: "page_id",
+          page_id: page.id,
         },
         title: [
           {
             type: "text",
-            text: { content: "ArXiv Papers" },
+            text: { content: "ArXiv Papers Database" },
           },
         ],
-        properties: {
-          Title: {
-            title: {},
-          },
-          Authors: {
-            rich_text: {},
-          },
-          Summary: {
-            rich_text: {},
-          },
-          Link: {
-            url: {},
-          },
-          "Publication Year": {
-            number: {
-              format: "number",
+        initial_data_source: {
+          properties: {
+            Title: {
+              title: {},
+            },
+            Authors: {
+              rich_text: {},
+            },
+            Summary: {
+              rich_text: {},
+            },
+            Link: {
+              url: {},
+            },
+            "Publication Year": {
+              number: {
+                format: "number",
+              },
             },
           },
         },
       });
 
-      return { id: database.id };
+      return {
+        databaseId: database.id,
+        pageId: page.id,
+      };
     } catch (error) {
       throw new NotionApiError(
-        `Failed to create database: ${
+        `Failed to setup ArXiv workspace: ${
           error instanceof Error ? error.message : String(error)
         }`
       );

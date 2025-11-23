@@ -30,14 +30,7 @@ pnpm install
    - **Redirect URI**: `https://your-worker.workers.dev/notion/oauth/callback`
 5. OAuth Client ID と Client Secret を取得
 
-### 3. Notion テンプレートの作成（推奨）
-
-1. Notion で新しいページを作成
-2. ページ内に ArXiv Papers データベースを作成（プロパティは自動作成されるので空で OK）
-3. ページを「Public」に設定
-4. Integration 設定の「Notion URL for optional template」にテンプレート URL を設定
-
-### 4. Cloudflare D1 データベースの作成
+### 3. Cloudflare D1 データベースの作成
 
 ```bash
 # D1 データベースを作成
@@ -45,11 +38,14 @@ pnpm wrangler d1 create arxiv-notion-db
 
 # 出力された database_id を wrangler.jsonc の d1_databases.database_id に設定
 
-# マイグレーションを実行
+# マイグレーションを実行（初期スキーマ）
 pnpm wrangler d1 execute arxiv-notion-db --file=./migrations/0001_initial.sql
+
+# マイグレーションを実行（parent_page_id 追加）
+pnpm wrangler d1 execute arxiv-notion-db --file=./migrations/0002_add_parent_page_id.sql
 ```
 
-### 5. Cloudflare KV Namespace の作成
+### 4. Cloudflare KV Namespace の作成
 
 ```bash
 # KV Namespace を作成
@@ -58,7 +54,7 @@ pnpm wrangler kv namespace create KV
 # 出力された id を wrangler.jsonc の kv_namespaces.id に設定
 ```
 
-### 6. 環境変数の設定
+### 5. 環境変数の設定
 
 ```bash
 # Notion OAuth Credentials を設定
@@ -72,7 +68,7 @@ pnpm wrangler secret put NOTION_CLIENT_SECRET
 # 例: https://arxiv-webhook-workers.your-subdomain.workers.dev
 ```
 
-### 7. デプロイ
+### 6. デプロイ
 
 ```bash
 # 本番環境にデプロイ
@@ -80,6 +76,7 @@ pnpm wrangler deploy
 
 # 本番環境の D1 にマイグレーション実行
 pnpm wrangler d1 execute arxiv-notion-db --remote --file=./migrations/0001_initial.sql
+pnpm wrangler d1 execute arxiv-notion-db --remote --file=./migrations/0002_add_parent_page_id.sql
 ```
 
 ## 使い方
@@ -87,8 +84,9 @@ pnpm wrangler d1 execute arxiv-notion-db --remote --file=./migrations/0001_initi
 ### 1. Notion と連携
 
 1. `https://your-worker.workers.dev/notion/connect` にアクセス
-2. Notion の OAuth 画面で「Duplicate template」を選択（推奨）
-3. 連携完了ページが表示される
+2. Notion の OAuth 画面で連携を承認
+3. 自動的に「ArXiv Papers」ページとデータベースが作成されます
+4. 連携完了ページが表示される
 
 ### 2. Notion Automation の設定
 
@@ -149,8 +147,8 @@ pnpm wrangler d1 execute arxiv-notion-db --remote --command="SELECT * FROM integ
 
 ## 機能
 
-- ✅ Notion OAuth 2.0 認証（テンプレート対応）
-- ✅ ArXiv データベース自動作成
+- ✅ Notion OAuth 2.0 認証
+- ✅ ArXiv ワークスペース自動セットアップ（ページ + データベース自動作成）
 - ✅ ArXiv 論文メタデータ自動取得
 - ✅ Notion ページ自動更新
 - ✅ トークン自動リフレッシュ（Cron Triggers）

@@ -51,7 +51,7 @@ export class IntegrationService {
       await this.d1.execute(
         `INSERT INTO integrations (
           bot_id, workspace_id, access_token, refresh_token,
-          token_expires_at, database_id, duplicated_template_id
+          token_expires_at, database_id, parent_page_id
         ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         input.bot_id,
         input.workspace_id,
@@ -59,7 +59,7 @@ export class IntegrationService {
         input.refresh_token,
         input.token_expires_at || null,
         input.database_id || null,
-        input.duplicated_template_id || null
+        input.parent_page_id || null
       );
     } catch (error) {
       throw new DatabaseError(

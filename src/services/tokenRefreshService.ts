@@ -1,6 +1,7 @@
 import type { Bindings } from "../types/bindings";
 import type { Integration } from "../types/d1";
-import type { RefreshResult, RefreshError } from "../types/scheduled";
+import type { RefreshResult } from "../types/scheduled";
+import type { OauthTokenResponse } from "@notionhq/client/build/src/api-endpoints";
 import { IntegrationService } from "./integrationService";
 import { NotionAuthService } from "./notionAuthService";
 
@@ -29,14 +30,13 @@ export class TokenRefreshService {
       throw new Error(`Integration not found: ${botId}`);
     }
 
-    const refreshResponse = await this.authService.refreshAccessToken(
-      integration.refresh_token
-    );
+    const refreshResponse: OauthTokenResponse =
+      await this.authService.refreshAccessToken(integration.refresh_token);
 
     // トークンを更新（有効期限は7日後と推定）
     await this.integrationService.updateIntegration(botId, {
       access_token: refreshResponse.access_token,
-      refresh_token: refreshResponse.refresh_token,
+      refresh_token: refreshResponse.refresh_token ?? integration.refresh_token, // null の場合は既存のものを維持
       token_expires_at: new Date(
         Date.now() + 7 * 24 * 60 * 60 * 1000
       ).toISOString(),

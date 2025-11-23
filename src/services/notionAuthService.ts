@@ -1,9 +1,10 @@
+import { Client } from "@notionhq/client";
+import type {
+  OauthTokenResponse,
+  OauthTokenParameters,
+} from "@notionhq/client/build/src/api-endpoints";
 import type { Bindings } from "../types/bindings";
 import type { OAuthState } from "../types/kv";
-import type {
-  NotionOAuthTokenResponse,
-  NotionRefreshTokenResponse,
-} from "../types/notion";
 import { KVKeys } from "../types/kv";
 import { AuthenticationError, AuthorizationError } from "../utils/errors";
 
@@ -12,8 +13,14 @@ import { AuthenticationError, AuthorizationError } from "../utils/errors";
  */
 export class NotionAuthService {
   private readonly STATE_EXPIRATION_SECONDS = 600; // 10分
+  private readonly client: Client;
 
-  constructor(private env: Bindings) {}
+  constructor(private env: Bindings) {
+    // Cloudflare Workers 環境向けに fetch を明示的にバインド
+    this.client = new Client({
+      fetch: fetch.bind(globalThis),
+    });
+  }
 
   /**
    * OAuth 認可 URL を生成
@@ -63,61 +70,51 @@ export class NotionAuthService {
   /**
    * 認可コードをアクセストークンに交換
    */
-  async exchangeCodeForToken(code: string): Promise<NotionOAuthTokenResponse> {
-    const credentials = btoa(
-      `${this.env.NOTION_CLIENT_ID}:${this.env.NOTION_CLIENT_SECRET}`
-    );
-
-    const response = await fetch("https://api.notion.com/v1/oauth/token", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Basic ${credentials}`,
-      },
-      body: JSON.stringify({
+  async exchangeCodeForToken(code: string): Promise<OauthTokenResponse> {
+    try {
+      const params: OauthTokenParameters & {
+        client_id: string;
+        client_secret: string;
+      } = {
         grant_type: "authorization_code",
         code,
         redirect_uri: `${this.env.WORKER_URL}/notion/callback`,
-      }),
-    });
+        client_id: this.env.NOTION_CLIENT_ID,
+        client_secret: this.env.NOTION_CLIENT_SECRET,
+      };
 
-    if (!response.ok) {
-      const error = await response.text();
+      return await this.client.oauth.token(params);
+    } catch (error) {
       throw new AuthenticationError(
-        `Failed to exchange code for token: ${error}`
+        `Failed to exchange code for token: ${
+          error instanceof Error ? error.message : String(error)
+        }`
       );
     }
-
-    return await response.json<NotionOAuthTokenResponse>();
   }
 
   /**
    * トークンをリフレッシュ
    */
-  async refreshAccessToken(
-    refreshToken: string
-  ): Promise<NotionRefreshTokenResponse> {
-    const credentials = btoa(
-      `${this.env.NOTION_CLIENT_ID}:${this.env.NOTION_CLIENT_SECRET}`
-    );
-
-    const response = await fetch("https://api.notion.com/v1/oauth/token", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Basic ${credentials}`,
-      },
-      body: JSON.stringify({
+  async refreshAccessToken(refreshToken: string): Promise<OauthTokenResponse> {
+    try {
+      const params: OauthTokenParameters & {
+        client_id: string;
+        client_secret: string;
+      } = {
         grant_type: "refresh_token",
         refresh_token: refreshToken,
-      }),
-    });
+        client_id: this.env.NOTION_CLIENT_ID,
+        client_secret: this.env.NOTION_CLIENT_SECRET,
+      };
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new AuthenticationError(`Failed to refresh token: ${error}`);
+      return await this.client.oauth.token(params);
+    } catch (error) {
+      throw new AuthenticationError(
+        `Failed to refresh token: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
     }
-
-    return await response.json<NotionRefreshTokenResponse>();
   }
 }
