@@ -5,13 +5,32 @@
   "assets": {
     "directory": "public"
   },
-  "compatibility_date": "2025-11-22"
-  // "compatibility_flags": [
-  //   "nodejs_compat"
-  // ],
-  // "vars": {
-  //   "MY_VAR": "my-variable"
-  // },
+  "compatibility_date": "2025-11-22",
+  "triggers": {
+    "crons": ["0 */6 * * *"]
+  },
+  "d1_databases": [
+    {
+      "binding": "arxiv_notion_db",
+      "database_name": "arxiv-notion-db",
+      "database_id": "c66b3334-cef4-4a86-bd06-808a3f3ea0dc",
+      "remote": true
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "KV",
+      "id": "ee541dae890d4c1a9d94d39eadc1612f",
+      "remote": true
+    }
+  ],
+  "vars": {
+    "WORKER_URL": "https://arxiv-webhook-workers.cruiseeast.workers.dev"
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
   // "kv_namespaces": [
   //   {
   //     "binding": "MY_KV_NAMESPACE",
@@ -34,8 +53,4 @@
   // "ai": {
   //   "binding": "AI"
   // },
-  // "observability": {
-  //   "enabled": true,
-  //   "head_sampling_rate": 1
-  // }
 }
