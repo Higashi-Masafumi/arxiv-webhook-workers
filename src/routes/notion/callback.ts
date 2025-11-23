@@ -58,9 +58,10 @@ app.get("/", async (c) => {
 
   // 6. 成功ページにリダイレクト（public/success.html を使用）
   // URL パラメータでデータを渡し、クライアントサイドで処理
-  const successUrl = new URL("/success.html", c.env.WORKER_URL);
+  const workerUrl = c.env.WORKER_URL || new URL(c.req.url).origin;
+  const successUrl = new URL("/success.html", workerUrl);
   successUrl.searchParams.set("database_id", databaseId);
-  successUrl.searchParams.set("worker_url", c.env.WORKER_URL);
+  successUrl.searchParams.set("worker_url", workerUrl);
 
   return c.redirect(successUrl.toString());
 });
