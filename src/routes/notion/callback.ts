@@ -31,20 +31,26 @@ app.get("/", async (c) => {
     code
   );
 
-  // 3. Workspace 保存
+  // 3. 既存連携の取得（冪等性確保）
+  const existingIntegration = await integrationService.getIntegrationByWorkspaceId(
+    tokenData.workspace_id
+  );
+
+  // 4. Workspace 保存
   await integrationService.upsertWorkspace({
     id: tokenData.workspace_id,
     workspace_name: tokenData.workspace_name,
     workspace_icon: tokenData.workspace_icon,
   });
 
-  // 4. ArXiv ワークスペースを自動セットアップ（ページ + データベース作成）
+  // 5. ArXiv ワークスペースを自動セットアップ（ページ + データベース作成）
   const { databaseId, pageId } = await dbService.setupArxivWorkspace(
-    tokenData.access_token
+    tokenData.access_token,
+    existingIntegration?.database_id
   );
 
-  // 5. Integration 保存
-  await integrationService.createIntegration({
+  // 6. Integration 保存
+  const integrationPayload = {
     bot_id: tokenData.bot_id,
     workspace_id: tokenData.workspace_id,
     access_token: tokenData.access_token,
@@ -54,9 +60,21 @@ app.get("/", async (c) => {
     ).toISOString(),
     database_id: databaseId,
     parent_page_id: pageId,
-  });
+  } as const;
 
-  // 6. 成功ページにリダイレクト（public/success.html を使用）
+  if (existingIntegration) {
+    await integrationService.updateIntegration(existingIntegration.bot_id, {
+      access_token: integrationPayload.access_token,
+      refresh_token: integrationPayload.refresh_token,
+      token_expires_at: integrationPayload.token_expires_at,
+      database_id: integrationPayload.database_id,
+      parent_page_id: integrationPayload.parent_page_id,
+    });
+  } else {
+    await integrationService.createIntegration(integrationPayload);
+  }
+
+  // 7. 成功ページにリダイレクト（public/success.html を使用）
   // URL パラメータでデータを渡し、クライアントサイドで処理
   const workerUrl = c.env.WORKER_URL || new URL(c.req.url).origin;
   const successUrl = new URL("/success.html", workerUrl);

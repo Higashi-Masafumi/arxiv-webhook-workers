@@ -1,4 +1,4 @@
-import { Client } from "@notionhq/client";
+import { APIResponseError, Client } from "@notionhq/client";
 import type { ArxivPaper } from "../types/notion";
 import { NotionApiError } from "../utils/errors";
 
@@ -8,10 +8,11 @@ import { NotionApiError } from "../utils/errors";
 export class NotionDatabaseService {
   /**
    * ArXiv 用のデータベースを自動セットアップ
-   * ワークスペース直下にデータベースを直接作成
+   * 既存の database_id が指定されていれば再利用し、存在しない場合は再作成する
    */
   async setupArxivWorkspace(
-    accessToken: string
+    accessToken: string,
+    existingDatabaseId?: string | null
   ): Promise<{ databaseId: string; pageId: string | null }> {
     const notion = new Client({
       auth: accessToken,
@@ -19,7 +20,25 @@ export class NotionDatabaseService {
     });
 
     try {
-      // ワークスペース直下にデータベースを直接作成
+      if (existingDatabaseId) {
+        try {
+          const existing = await notion.databases.retrieve({
+            database_id: existingDatabaseId,
+          });
+
+          return {
+            databaseId: existing.id,
+            pageId:
+              existing.parent.type === "page_id" ? existing.parent.page_id : null,
+          };
+        } catch (error) {
+          if (!(error instanceof APIResponseError && error.status === 404)) {
+            throw error;
+          }
+          // 404 の場合は再作成に進む
+        }
+      }
+
       const database = await notion.databases.create({
         parent: {
           type: "workspace",

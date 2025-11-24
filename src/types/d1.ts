@@ -63,4 +63,5 @@ export interface UpdateIntegrationInput {
   refresh_token?: string;
   token_expires_at?: string | null;
   database_id?: string | null;
+  parent_page_id?: string | null;
 }

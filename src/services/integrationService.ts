@@ -45,14 +45,22 @@ export class IntegrationService {
 
   /**
    * Integration を作成
-   */
+  */
   async createIntegration(input: CreateIntegrationInput): Promise<void> {
     try {
       await this.d1.execute(
         `INSERT INTO integrations (
           bot_id, workspace_id, access_token, refresh_token,
           token_expires_at, database_id, parent_page_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(bot_id) DO UPDATE SET
+          workspace_id = excluded.workspace_id,
+          access_token = excluded.access_token,
+          refresh_token = excluded.refresh_token,
+          token_expires_at = excluded.token_expires_at,
+          database_id = excluded.database_id,
+          parent_page_id = excluded.parent_page_id,
+          updated_at = CURRENT_TIMESTAMP`,
         input.bot_id,
         input.workspace_id,
         input.access_token,
@@ -153,6 +161,10 @@ export class IntegrationService {
     if (input.database_id !== undefined) {
       updates.push("database_id = ?");
       params.push(input.database_id);
+    }
+    if (input.parent_page_id !== undefined) {
+      updates.push("parent_page_id = ?");
+      params.push(input.parent_page_id);
     }
 
     if (updates.length === 0) {
