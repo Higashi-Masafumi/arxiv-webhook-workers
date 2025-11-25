@@ -146,6 +146,10 @@ export class IntegrationService {
     const updates: string[] = [];
     const params: unknown[] = [];
 
+    if (input.workspace_id !== undefined) {
+      updates.push("workspace_id = ?");
+      params.push(input.workspace_id);
+    }
     if (input.access_token !== undefined) {
       updates.push("access_token = ?");
       params.push(input.access_token);

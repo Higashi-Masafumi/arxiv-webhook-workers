@@ -66,7 +66,10 @@ app.get("/", async (c) => {
 
   if (existingIntegration) {
     // 既存の連携を更新（同じ bot_id で再接続）
+    // workspace_id も更新することで、同じ bot_id で異なるワークスペースに接続する
+    // ケース（通常は発生しないが、堅牢性のため）にも対応
     await integrationService.updateIntegration(tokenData.bot_id, {
+      workspace_id: integrationPayload.workspace_id,
       access_token: integrationPayload.access_token,
       refresh_token: integrationPayload.refresh_token,
       token_expires_at: integrationPayload.token_expires_at,

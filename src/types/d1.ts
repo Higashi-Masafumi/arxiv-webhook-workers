@@ -59,6 +59,7 @@ export interface CreateIntegrationInput {
  * Integration 更新用の入力型
  */
 export interface UpdateIntegrationInput {
+  workspace_id?: string;
   access_token?: string;
   refresh_token?: string;
   token_expires_at?: string | null;
