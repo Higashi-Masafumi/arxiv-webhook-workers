@@ -32,8 +32,10 @@ app.get("/", async (c) => {
   );
 
   // 3. 既存連携の取得（冪等性確保）
-  const existingIntegration = await integrationService.getIntegrationByWorkspaceId(
-    tokenData.workspace_id
+  // bot_id で取得することで、同じボットで再接続する場合は更新、
+  // 異なるボットの場合は新規作成となる
+  const existingIntegration = await integrationService.getIntegrationByBotId(
+    tokenData.bot_id
   );
 
   // 4. Workspace を作成または更新（冪等性の確保）
@@ -63,7 +65,8 @@ app.get("/", async (c) => {
   } as const;
 
   if (existingIntegration) {
-    await integrationService.updateIntegration(existingIntegration.bot_id, {
+    // 既存の連携を更新（同じ bot_id で再接続）
+    await integrationService.updateIntegration(tokenData.bot_id, {
       access_token: integrationPayload.access_token,
       refresh_token: integrationPayload.refresh_token,
       token_expires_at: integrationPayload.token_expires_at,
@@ -71,6 +74,7 @@ app.get("/", async (c) => {
       parent_page_id: integrationPayload.parent_page_id,
     });
   } else {
+    // 新規連携を作成（新しい bot_id または初回接続）
     await integrationService.createIntegration(integrationPayload);
   }
 
