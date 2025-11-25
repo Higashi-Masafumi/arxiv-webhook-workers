@@ -12,16 +12,133 @@
 
 ## 目次
 
-1. [OAuth 認証フロー（テンプレート対応）](#1-oauth-認証フローテンプレート対応)
-2. [データベース検索・作成フロー](#2-データベース検索作成フロー)
-3. [Webhook 受信フロー](#3-webhook-受信フロー)
-4. [ArXiv 同期フロー](#4-arxiv-同期フロー)
-5. [トークンリフレッシュフロー](#5-トークンリフレッシュフロー)
-6. [エラーハンドリングフロー](#6-エラーハンドリングフロー)
+1. [データベース ER 図](#1-データベース-er-図)
+2. [OAuth 認証フロー（テンプレート対応）](#2-oauth-認証フローテンプレート対応)
+3. [OAuth コールバック時のデータベース操作フロー](#3-oauth-コールバック時のデータベース操作フロー)
+4. [データベース検索・作成フロー（旧実装参考）](#4-データベース検索作成フロー旧実装参考)
+5. [Webhook 受信フロー](#5-webhook-受信フロー)
+6. [ArXiv 同期フロー](#6-arxiv-同期フロー)
+7. [トークンリフレッシュフロー](#7-トークンリフレッシュフロー)
+8. [エラーハンドリングフロー](#8-エラーハンドリングフロー)
 
 ---
 
-## 1. OAuth 認証フロー（テンプレート対応）
+## 1. データベース ER 図
+
+### 1.1 エンティティ関係図
+
+```mermaid
+erDiagram
+    workspaces ||--o{ integrations : "has"
+
+    workspaces {
+        TEXT id PK "workspace_id (Notion)"
+        TEXT workspace_name "ワークスペース名"
+        TEXT workspace_icon "ワークスペースアイコンURL"
+        DATETIME created_at "作成日時"
+        DATETIME updated_at "更新日時"
+    }
+
+    integrations {
+        TEXT bot_id PK "ボットID (Notion)"
+        TEXT workspace_id FK "ワークスペースID"
+        TEXT access_token "アクセストークン"
+        TEXT refresh_token "リフレッシュトークン"
+        DATETIME token_expires_at "トークン有効期限"
+        TEXT database_id "ArXivデータベースID"
+        TEXT parent_page_id "親ページID"
+        DATETIME created_at "作成日時"
+        DATETIME updated_at "更新日時"
+    }
+
+    oauth_states {
+        TEXT state PK "OAuth state値"
+        DATETIME created_at "作成日時"
+        DATETIME expires_at "有効期限"
+    }
+```
+
+### 1.2 テーブル詳細
+
+#### workspaces テーブル
+
+| カラム名         | 型       | 制約        | 説明                         |
+| ---------------- | -------- | ----------- | ---------------------------- |
+| `id`             | TEXT     | PRIMARY KEY | Notion の workspace_id       |
+| `workspace_name` | TEXT     | NULL 許可   | ワークスペース名             |
+| `workspace_icon` | TEXT     | NULL 許可   | ワークスペースアイコンの URL |
+| `created_at`     | DATETIME | DEFAULT NOW | レコード作成日時             |
+| `updated_at`     | DATETIME | DEFAULT NOW | レコード更新日時             |
+
+**インデックス**: なし（主キーのみ）
+
+#### integrations テーブル
+
+| カラム名           | 型       | 制約         | 説明                                      |
+| ------------------ | -------- | ------------ | ----------------------------------------- |
+| `bot_id`           | TEXT     | PRIMARY KEY  | Notion の bot_id（インテグレーション ID） |
+| `workspace_id`     | TEXT     | NOT NULL, FK | ワークスペース ID（workspaces.id 参照）   |
+| `access_token`     | TEXT     | NOT NULL     | Notion API アクセストークン               |
+| `refresh_token`    | TEXT     | NOT NULL     | トークンリフレッシュ用トークン            |
+| `token_expires_at` | DATETIME | NULL 許可    | トークンの推定有効期限（7 日後）          |
+| `database_id`      | TEXT     | NULL 許可    | ArXiv データベースの ID                   |
+| `parent_page_id`   | TEXT     | NULL 許可    | ArXiv Papers ページの ID                  |
+| `created_at`       | DATETIME | DEFAULT NOW  | レコード作成日時                          |
+| `updated_at`       | DATETIME | DEFAULT NOW  | レコード更新日時                          |
+
+**外部キー制約**:
+
+- `workspace_id` → `workspaces.id` (ON DELETE CASCADE)
+
+**インデックス**:
+
+- `idx_integrations_workspace`: `workspace_id` に対するインデックス
+- `idx_integrations_expires`: `token_expires_at` に対するインデックス（トークンリフレッシュ用）
+
+#### oauth_states テーブル
+
+| カラム名     | 型       | 制約        | 説明                   |
+| ------------ | -------- | ----------- | ---------------------- |
+| `state`      | TEXT     | PRIMARY KEY | OAuth state 値（UUID） |
+| `created_at` | DATETIME | DEFAULT NOW | レコード作成日時       |
+| `expires_at` | DATETIME | NOT NULL    | state の有効期限       |
+
+**インデックス**:
+
+- `idx_oauth_states_expires`: `expires_at` に対するインデックス（期限切れ削除用）
+
+**注意**: 現在は Cloudflare KV を使用しており、このテーブルは将来用として定義されています。
+
+### 1.3 リレーションシップ
+
+1. **workspaces ↔ integrations**
+   - **関係**: 1 対多（1 つのワークスペースに複数のインテグレーションが存在可能）
+   - **外部キー**: `integrations.workspace_id` → `workspaces.id`
+   - **削除動作**: CASCADE（ワークスペース削除時、関連するインテグレーションも削除）
+
+### 1.4 データフロー
+
+```mermaid
+flowchart TD
+    A[OAuth コールバック] --> B[workspaces テーブル]
+    A --> C[integrations テーブル]
+
+    B --> B1[INSERT/UPDATE<br/>workspace_id, name, icon]
+    C --> C1[既存連携チェック<br/>bot_id で検索]
+
+    C1 -->|存在する| C2[UPDATE<br/>トークン、database_id 等]
+    C1 -->|存在しない| C3[INSERT<br/>新規レコード作成]
+
+    D[トークンリフレッシュ] --> C
+    D --> C4[UPDATE<br/>access_token, refresh_token]
+
+    E[Webhook 受信] --> C
+    E --> C5[SELECT<br/>database_id で検索]
+```
+
+---
+
+## 2. OAuth 認証フロー（テンプレート対応）
 
 ### 1.1 認証開始からコールバックまで
 
@@ -131,9 +248,129 @@ sequenceDiagram
 
 ---
 
-## 2. データベース検索・作成フロー
+## 3. OAuth コールバック時のデータベース操作フロー
 
-### 2.1 テンプレートからのデータベース検索
+### 2.1 既存連携の取得とデータベース再利用
+
+```mermaid
+sequenceDiagram
+    participant Workers as Cloudflare Workers<br/>(callback.ts)
+    participant D1 as Cloudflare D1
+    participant NotionAPI as Notion API
+
+    Note over Workers,NotionAPI: 前提: OAuth トークン取得済み<br/>(tokenData 取得済み)
+
+    activate Workers
+
+    Note over Workers,NotionAPI: Phase 1: 既存連携の取得（冪等性確保）
+
+    Workers->>D1: SELECT * FROM integrations<br/>WHERE bot_id = ?
+    activate D1
+    D1-->>Workers: existingIntegration | null
+    deactivate D1
+
+    Note over Workers,NotionAPI: Phase 2: Workspace の作成/更新
+
+    Workers->>D1: INSERT INTO workspaces<br/>(id, workspace_name, workspace_icon)<br/>ON CONFLICT(id) DO UPDATE SET ...
+    activate D1
+    D1-->>Workers: OK
+    deactivate D1
+
+    Note over Workers,NotionAPI: Phase 3: データベースの検索/作成
+
+    alt 既存連携が存在する場合
+        Workers->>NotionAPI: GET /v1/databases/{database_id}
+        activate NotionAPI
+
+        alt データベースが存在する（200 OK）
+            NotionAPI-->>Workers: { id: database_id, parent: {...}, ... }
+            deactivate NotionAPI
+            Workers->>Workers: databaseId = existing.id<br/>pageId = existing.parent.page_id
+        else データベースが存在しない（404）
+            NotionAPI-->>Workers: 404 Not Found
+            deactivate NotionAPI
+            Note over Workers: 新規作成に進む
+        end
+    end
+
+    alt 既存データベースが存在しない、または既存連携がない場合
+        Workers->>NotionAPI: POST /v1/databases<br/>{ parent: { type: "workspace" },<br/>  title: "ArXiv Papers",<br/>  properties: {...} }
+        activate NotionAPI
+        NotionAPI-->>Workers: { id: database_id, parent: {...} }
+        deactivate NotionAPI
+        Workers->>Workers: databaseId = database.id<br/>pageId = null (workspace直下)
+    end
+
+    Note over Workers,NotionAPI: Phase 4: Integration の保存
+
+    alt 既存連携が存在する場合（更新）
+        Workers->>D1: UPDATE integrations<br/>SET workspace_id = ?,<br/>    access_token = ?,<br/>    refresh_token = ?,<br/>    token_expires_at = ?,<br/>    database_id = ?,<br/>    parent_page_id = ?<br/>WHERE bot_id = ?
+        activate D1
+        D1-->>Workers: OK
+        deactivate D1
+    else 既存連携が存在しない場合（新規作成）
+        Workers->>D1: INSERT INTO integrations<br/>(bot_id, workspace_id, access_token,<br/> refresh_token, token_expires_at,<br/> database_id, parent_page_id)<br/>VALUES (?, ?, ?, ?, ?, ?, ?)<br/>ON CONFLICT(bot_id) DO UPDATE SET ...
+        activate D1
+        D1-->>Workers: OK
+        deactivate D1
+    end
+
+    Workers-->>Workers: 成功ページにリダイレクト
+    deactivate Workers
+```
+
+### 2.2 エラーケース
+
+```mermaid
+sequenceDiagram
+    participant Workers as Cloudflare Workers
+    participant D1 as Cloudflare D1
+    participant NotionAPI as Notion API
+
+    Note over Workers,NotionAPI: ケース1: 既存データベース取得時のエラー（404以外）
+
+    activate Workers
+    Workers->>D1: SELECT * FROM integrations<br/>WHERE bot_id = ?
+    activate D1
+    D1-->>Workers: { database_id: "xxx", ... }
+    deactivate D1
+
+    Workers->>NotionAPI: GET /v1/databases/{database_id}
+    activate NotionAPI
+    NotionAPI-->>Workers: 403 Forbidden<br/>(権限エラー)
+    deactivate NotionAPI
+
+    Workers-->>Workers: NotionApiError をスロー<br/>処理中断
+    deactivate Workers
+
+    Note over Workers,NotionAPI: ケース2: D1 更新失敗
+
+    activate Workers
+    Workers->>D1: UPDATE integrations SET ...
+    activate D1
+    D1-->>Workers: Error<br/>(データベースエラー)
+    deactivate D1
+
+    Workers-->>Workers: DatabaseError をスロー<br/>処理中断
+    deactivate Workers
+
+    Note over Workers,NotionAPI: ケース3: データベース作成失敗
+
+    activate Workers
+    Workers->>NotionAPI: POST /v1/databases
+    activate NotionAPI
+    NotionAPI-->>Workers: 400 Bad Request<br/>{ message: "Invalid properties" }
+    deactivate NotionAPI
+
+    Workers-->>Workers: NotionApiError をスロー<br/>処理中断
+    deactivate Workers
+```
+
+---
+
+## 4. データベース検索・作成フロー（旧実装参考）
+
+### 3.1 テンプレートからのデータベース検索
 
 ```mermaid
 sequenceDiagram
@@ -214,7 +451,7 @@ sequenceDiagram
 
 ---
 
-## 3. Webhook 受信フロー
+## 5. Webhook 受信フロー
 
 ### 3.1 正常フロー
 
@@ -308,7 +545,7 @@ sequenceDiagram
 
 ---
 
-## 4. ArXiv 同期フロー
+## 6. ArXiv 同期フロー
 
 ### 4.1 正常フロー
 
@@ -459,7 +696,7 @@ sequenceDiagram
 
 ---
 
-## 5. トークンリフレッシュフロー
+## 7. トークンリフレッシュフロー
 
 ### 5.1 Cron Triggers による定期リフレッシュ
 
@@ -583,7 +820,7 @@ sequenceDiagram
 
 ---
 
-## 6. エラーハンドリングフロー
+## 8. エラーハンドリングフロー
 
 ### 5.1 エラーキャッチと処理
 
@@ -702,7 +939,7 @@ sequenceDiagram
 
 ---
 
-## 6. 全体統合フロー
+## 9. 全体統合フロー
 
 ### 6.1 初回セットアップから同期まで
 
@@ -747,7 +984,7 @@ sequenceDiagram
 
 ---
 
-## 7. 補足情報
+## 10. 補足情報
 
 ### 7.1 タイミング図
 
@@ -790,7 +1027,7 @@ gantt
 
 ---
 
-## 8. 参考資料
+## 11. 参考資料
 
 ### 8.1 関連ドキュメント
 
@@ -806,7 +1043,7 @@ gantt
 
 ---
 
-## 9. 変更履歴
+## 12. 変更履歴
 
 | バージョン | 日付       | 変更内容                                                                          | 担当者 |
 | ---------- | ---------- | --------------------------------------------------------------------------------- | ------ |
