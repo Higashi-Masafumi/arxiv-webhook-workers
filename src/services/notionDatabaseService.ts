@@ -1,4 +1,4 @@
-import { APIResponseError, Client } from "@notionhq/client";
+import { APIResponseError, Client, isFullDatabase } from "@notionhq/client";
 import type { ArxivPaper } from "../types/notion";
 import { NotionApiError } from "../utils/errors";
 
@@ -26,19 +26,28 @@ export class NotionDatabaseService {
             database_id: existingDatabaseId,
           });
 
+          if (!isFullDatabase(existing)) {
+            throw new NotionApiError("Invalid database response");
+          }
+
           return {
             databaseId: existing.id,
             pageId:
-              existing.parent.type === "page_id" ? existing.parent.page_id : null,
+              existing.parent.type === "page_id"
+                ? existing.parent.page_id
+                : null,
           };
         } catch (error) {
+          // 404 error でない場合のみエラーをスロー
           if (!(error instanceof APIResponseError && error.status === 404)) {
             throw error;
           }
-          // 404 の場合は再作成に進む
+          // 404 の場合は既存データベースが存在しないため、
+          // 以下の処理で新規作成される
         }
       }
 
+      // 既存データベースが存在しない、または404エラーの場合に新規作成
       const database = await notion.databases.create({
         parent: {
           type: "workspace",

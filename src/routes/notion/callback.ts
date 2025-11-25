@@ -36,7 +36,7 @@ app.get("/", async (c) => {
     tokenData.workspace_id
   );
 
-  // 4. Workspace 保存
+  // 4. Workspace を作成または更新（冪等性の確保）
   await integrationService.upsertWorkspace({
     id: tokenData.workspace_id,
     workspace_name: tokenData.workspace_name,
