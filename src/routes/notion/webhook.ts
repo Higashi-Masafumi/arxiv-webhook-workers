@@ -8,6 +8,7 @@ import { IntegrationService } from "../../services/integrationService";
 import { TokenRefreshService } from "../../services/tokenRefreshService";
 import { ArxivService } from "../../services/arxivService";
 import { NotionDatabaseService } from "../../services/notionDatabaseService";
+import { TranslationService } from "../../services/translationService";
 import { validateArxivUrl } from "../../utils/validation";
 import { NotFoundError, ValidationError } from "../../utils/errors";
 
@@ -70,9 +71,25 @@ app.post("/", async (c) => {
   const arxivService = new ArxivService();
   const paper = await arxivService.fetchPaperByUrl(arxivUrl);
 
-  // 7. Notion 更新
+  // 7. Summary を日本語に翻訳
+  const translationService = new TranslationService(c.env);
+  const translatedSummary = await translationService.translateToJapanese(
+    paper.summary
+  );
+
+  // 8. 翻訳されたsummaryでpaperオブジェクトを更新
+  const paperWithTranslation = {
+    ...paper,
+    summary: translatedSummary,
+  };
+
+  // 9. Notion 更新
   const dbService = new NotionDatabaseService();
-  await dbService.updatePage(integration.access_token, pageId, paper);
+  await dbService.updatePage(
+    integration.access_token,
+    pageId,
+    paperWithTranslation
+  );
 
   const response: WebhookResponse = {
     success: true,

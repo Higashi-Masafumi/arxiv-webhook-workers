@@ -74,3 +74,12 @@ export class DatabaseError extends AppError {
     super(message, 500, "DATABASE_ERROR");
   }
 }
+
+/**
+ * 翻訳エラー
+ */
+export class TranslationError extends AppError {
+  constructor(message: string) {
+    super(message, 500, "TRANSLATION_ERROR");
+  }
+}
