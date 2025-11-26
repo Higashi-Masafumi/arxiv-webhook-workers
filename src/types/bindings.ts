@@ -8,6 +8,9 @@ export interface Bindings {
   // KV Namespace
   KV: KVNamespace;
 
+  // Workers AI
+  AI: Ai;
+
   // 環境変数
   NOTION_CLIENT_ID: string;
   NOTION_CLIENT_SECRET: string;

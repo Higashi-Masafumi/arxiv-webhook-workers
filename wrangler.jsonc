@@ -37,6 +37,9 @@
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
+  },
+  "ai": {
+    "binding": "AI"
   }
   // "kv_namespaces": [
   //   {
@@ -57,7 +60,4 @@
   //     "database_id": ""
   //   }
   // ],
-  // "ai": {
-  //   "binding": "AI"
-  // },
 }

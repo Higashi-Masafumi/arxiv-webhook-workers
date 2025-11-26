@@ -28,7 +28,11 @@ app.route("/notion/callback", callbackRoute);
 app.route("/notion/webhook", webhookRoute);
 app.route("/notion/refresh-token", refreshTokenRoute);
 
-export default app;
+// Scheduled handler をインポート
+import scheduledHandler from "./scheduled";
 
-// Cron Triggers のエクスポート
-export { default as scheduled } from "./scheduled";
+// Cloudflare Workers のエクスポート形式
+export default {
+  fetch: app.fetch.bind(app),
+  scheduled: scheduledHandler.scheduled,
+};
