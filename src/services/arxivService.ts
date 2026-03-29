@@ -9,6 +9,8 @@ import { extractArxivId } from "../utils/validation";
 export class ArxivService {
   private readonly API_BASE_URL = "http://export.arxiv.org/api/query";
   private readonly TIMEOUT = 10000; // 10秒
+  private readonly MAX_RETRIES = 3;
+  private readonly BASE_RETRY_DELAY_MS = 3000; // 3秒（ArXiv API の推奨インターバル）
 
   /**
    * URL から論文情報を取得
@@ -19,40 +21,64 @@ export class ArxivService {
   }
 
   /**
-   * ArXiv ID から論文情報を取得
+   * ArXiv ID から論文情報を取得（429 時はリトライ）
    */
   async fetchPaperById(arxivId: string): Promise<ArxivPaper> {
     const apiUrl = `${this.API_BASE_URL}?id_list=${arxivId}&max_results=1`;
 
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), this.TIMEOUT);
+    for (let attempt = 0; attempt <= this.MAX_RETRIES; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.TIMEOUT);
 
-      const response = await fetch(apiUrl, {
-        signal: controller.signal,
-      });
+        const response = await fetch(apiUrl, {
+          signal: controller.signal,
+        });
 
-      clearTimeout(timeoutId);
+        clearTimeout(timeoutId);
 
-      if (!response.ok) {
+        if (response.status === 429) {
+          if (attempt === this.MAX_RETRIES) {
+            throw new ArxivApiError(
+              `ArXiv API returned ${response.status}`,
+              response.status
+            );
+          }
+          // Retry-After ヘッダーがあればその値を、なければ指数バックオフを使用
+          const retryAfterHeader = response.headers.get("Retry-After");
+          const retryAfterSeconds = retryAfterHeader
+            ? parseInt(retryAfterHeader, 10)
+            : NaN;
+          const delayMs = Number.isFinite(retryAfterSeconds)
+            ? retryAfterSeconds * 1000
+            : this.BASE_RETRY_DELAY_MS * Math.pow(2, attempt);
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          continue;
+        }
+
+        if (!response.ok) {
+          throw new ArxivApiError(
+            `ArXiv API returned ${response.status}`,
+            response.status
+          );
+        }
+
+        const xmlText = await response.text();
+        return this.parseArxivXml(xmlText);
+      } catch (error) {
+        if (error instanceof ArxivApiError) {
+          throw error;
+        }
         throw new ArxivApiError(
-          `ArXiv API returned ${response.status}`,
-          response.status
+          `Failed to fetch paper: ${
+            error instanceof Error ? error.message : String(error)
+          }`
         );
       }
-
-      const xmlText = await response.text();
-      return this.parseArxivXml(xmlText);
-    } catch (error) {
-      if (error instanceof ArxivApiError) {
-        throw error;
-      }
-      throw new ArxivApiError(
-        `Failed to fetch paper: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
     }
+
+    // ループを抜けることはないが TypeScript の型チェックのため
+    throw new ArxivApiError("Unexpected error: retry loop exhausted");
   }
 
   /**
