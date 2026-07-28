@@ -50,7 +50,7 @@
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │  Services Layer                                          │   │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │   │
-│  │  │ Notion Auth  │  │ Notion DB    │  │ ArXiv Sync   │  │   │
+│  │  │ Notion Auth  │  │ Notion DB    │  │ Paper        │  │   │
 │  │  │ Service      │  │ Service      │  │ Service      │  │   │
 │  │  └──────────────┘  └──────────────┘  └──────────────┘  │   │
 │  │  ┌──────────────┐  ┌──────────────┐                    │   │
@@ -70,8 +70,9 @@
              │ 5. KV R/W    │ 6. D1 R/W            │ 7. HTTP Request
              │ (OAuth State)│ (Integrations)       │
 ┌────────────▼──────────┐ ┌─▼──────────────────┐ ┌─▼────────────────┐
-│   Cloudflare KV       │ │   Cloudflare D1    │ │   ArXiv API      │
-│   (OAuth State Only)  │ │   (Token Storage)  │ │ (export.arxiv.org)│
+│   Cloudflare KV       │ │   Cloudflare D1    │ │  Paper Metadata   │
+│   (OAuth State Only)  │ │   (Token Storage)  │ │ ArXiv / IEEE /    │
+│                       │ │                    │ │ Crossref/OpenAlex │
 └───────────────────────┘ └────────────────────┘ └──────────────────┘
                             ▲
                             │ 8. Cron Triggers (6h)
@@ -86,7 +87,7 @@
 
 1. **OAuth 認証フロー**: User → Workers → Notion OAuth → Workers → D1 (Integration 保存)
 2. **DB 検索・作成フロー**: Workers → Notion API (search) → D1 (database_id 保存)
-3. **Webhook 受信フロー**: Notion Automation → Workers → D1 (Integration 取得) → ArXiv API → Notion API
+3. **Webhook 受信フロー**: Notion Automation → Workers → D1 (Integration 取得) → 論文メタデータ取得（ArXiv / IEEE / Crossref / OpenAlex / HTML メタタグ）→ Notion API
 4. **トークンリフレッシュフロー**: Cron Triggers → Workers → D1 (期限切れ近いトークン取得) → Notion API → D1 (更新)
 
 ---
@@ -109,16 +110,20 @@ arxiv-webhook-workers/
 │   ├── services/
 │   │   ├── notionAuthService.ts    # OAuth 認証・トークンリフレッシュロジック
 │   │   ├── notionDatabaseService.ts # DB 検索・作成・更新ロジック
+│   │   ├── paperService.ts         # 論文メタデータ取得のオーケストレーター
 │   │   ├── arxivService.ts         # ArXiv API 連携ロジック
+│   │   ├── ieeeService.ts          # IEEE Xplore 連携ロジック
 │   │   ├── integrationService.ts   # D1 Integration 管理ロジック
 │   │   └── tokenRefreshService.ts  # トークンリフレッシュロジック
 │   ├── libs/
 │   │   ├── notionClient.ts         # Notion SDK ラッパー
-│   │   ├── arxivClient.ts          # ArXiv API クライアント
+│   │   ├── httpClient.ts           # 共通 HTTP クライアント（タイムアウト・リトライ）
+│   │   ├── crossrefClient.ts       # Crossref API クライアント
+│   │   ├── openAlexClient.ts       # OpenAlex API クライアント
 │   │   └── d1Client.ts             # D1 クライアントヘルパー
 │   ├── types/
 │   │   ├── notion.ts               # Notion 関連型定義
-│   │   ├── arxiv.ts                # ArXiv 関連型定義
+│   │   ├── paper.ts                # 論文メタデータ型定義（取得元非依存）
 │   │   ├── webhook.ts              # Webhook 関連型定義
 │   │   ├── d1.ts                   # D1 データベース型定義
 │   │   ├── scheduled.ts            # Cron Triggers 型定義
@@ -126,6 +131,10 @@ arxiv-webhook-workers/
 │   ├── utils/
 │   │   ├── errors.ts               # カスタムエラークラス
 │   │   ├── validation.ts           # 入力検証ユーティリティ
+│   │   ├── paperUrl.ts             # 論文 URL の判定・DOI 抽出
+│   │   ├── citationMeta.ts         # citation_* / Dublin Core メタタグ抽出
+│   │   ├── embeddedJson.ts         # HTML 埋め込み JSON の抽出
+│   │   ├── html.ts                 # HTML / JATS のテキスト化
 │   │   └── logger.ts               # ロギングユーティリティ
 │   └── middleware/
 │       ├── errorHandler.ts         # エラーハンドリングミドルウェア
@@ -167,7 +176,9 @@ arxiv-webhook-workers/
 
 - `notionAuthService.ts`: OAuth トークン取得・リフレッシュ、state 管理
 - `notionDatabaseService.ts`: DB 検索・作成、ページ更新
+- `paperService.ts`: URL に応じた取得元の選択と、取得元をまたいだメタデータ補完
 - `arxivService.ts`: ArXiv API 呼び出し、データ変換
+- `ieeeService.ts`: IEEE Xplore Metadata API / ページ埋め込み JSON からの取得
 - `integrationService.ts`: D1 への Integration 保存・取得・更新
 - `tokenRefreshService.ts`: トークンリフレッシュロジック、有効期限チェック
 
@@ -183,7 +194,9 @@ arxiv-webhook-workers/
 **責務**: 外部 API クライアントのラッパー
 
 - `notionClient.ts`: Notion SDK の初期化と基本操作
-- `arxivClient.ts`: ArXiv API の HTTP クライアント
+- `httpClient.ts`: タイムアウト・429/5xx リトライ・本文サイズ上限つき fetch
+- `crossrefClient.ts`: Crossref REST API の HTTP クライアント
+- `openAlexClient.ts`: OpenAlex API の HTTP クライアント
 - `d1Client.ts`: D1 クエリヘルパー、トランザクション管理
 
 **原則**:
@@ -535,34 +548,102 @@ class NotionDatabaseService {
 2. `databases.create()` で DB 作成
 3. `pages.update()` でページ更新
 
-#### 3.2.3 arxivService.ts
+#### 3.2.3 paperService.ts
+
+論文メタデータ取得のオーケストレーター。URL の形から取得ルートを選び、
+足りないフィールドを DOI をキーに別ソースで補完する。
+
+**主要メソッド**:
+
+```typescript
+class PaperService {
+  constructor(env: Pick<Bindings, "IEEE_API_KEY" | "CONTACT_EMAIL">);
+
+  // 任意の論文 URL からメタデータ取得
+  async fetchPaperByUrl(url: string): Promise<Paper>;
+
+  // DOI から取得（Crossref -> OpenAlex -> ページスクレイピング）
+  private async fetchByDoi(doi: string, sourceUrl: string): Promise<Paper>;
+
+  // citation_* / Dublin Core メタタグから取得
+  private async fetchFromWebPage(sourceUrl: string, knownDoi?: string): Promise<Paper>;
+
+  // 欠けているフィールドを DOI ベースの API で補完
+  private async enrich(paper: Paper): Promise<Paper>;
+}
+```
+
+**取得ルートの選択**（`utils/paperUrl.ts` の `detectPaperUrl`）:
+
+| 判定 | 取得元 | 補完 |
+| --- | --- | --- |
+| `arxiv.org/...` / arXiv DOI | ArXiv API | 不要（abstract が必ず返る） |
+| `ieeexplore.ieee.org/...` | IEEE Xplore Metadata API → ページ埋め込み JSON → メタタグ | Crossref / OpenAlex |
+| URL から DOI 抽出可 | Crossref → OpenAlex | OpenAlex / Crossref |
+| それ以外 | ページの `citation_*` / Dublin Core メタタグ | DOI 判明時のみ Crossref / OpenAlex |
+
+**設計上の判断**:
+
+- **サイト固有の DOM スクレイピングはしない。** 学術サイトの大半は Highwire Press 形式の
+  `citation_*` メタタグを出すため、出版社ごとに CSS セレクタを書き分けるより壊れにくい。
+  Cloudflare Workers には BeautifulSoup 相当の DOM パーサーが無く、標準の `HTMLRewriter` は
+  ストリーミング変換用でメタタグ抽出には過剰なため、純粋関数のパーサーを自前で持っている
+  （Workers / Node の双方で動くのでユニットテストが書ける）。
+- **IEEE Xplore は bot 対策で 403 を返しうる。** その場合は `IEEE_API_KEY` の設定、
+  もしくは DOI URL の利用を促すエラーメッセージを返す。
+- **補完の失敗は本体の取得結果を捨てない。** Crossref / OpenAlex への問い合わせが
+  失敗しても警告ログのみで、取得済みのフィールドはそのまま Notion に書き込む。
+
+#### 3.2.4 arxivService.ts
 
 **主要メソッド**:
 
 ```typescript
 class ArxivService {
   // URL から論文データ取得
-  async fetchPaperByUrl(url: string): Promise<ArxivPaper>;
-
-  // ArXiv ID 抽出
-  private extractArxivId(url: string): string | null;
+  async fetchPaperByUrl(url: string): Promise<Paper>;
 
   // ArXiv API 呼び出し
-  private async fetchPaperById(arxivId: string): Promise<ArxivApiResponse>;
-
-  // XML パース
-  private parseArxivXml(xml: string): ArxivPaper;
+  async fetchPaperById(arxivId: string): Promise<Paper>;
 }
+
+// Atom XML パース（純粋関数・テスト対象）
+export function parseArxivXml(xml: string, arxivId?: string): Paper;
 ```
 
 **処理フロー**:
 
-1. URL から ArXiv ID を抽出
-2. ArXiv API に HTTP リクエスト
+1. URL から ArXiv ID を抽出（`utils/paperUrl.ts`。新形式 `2301.12345` / 旧形式 `cs/0112017` 両対応）
+2. ArXiv API に HTTP リクエスト（429 / 5xx は指数バックオフでリトライ）
 3. Atom XML をパース
-4. `ArxivPaper` 型に変換
+4. `Paper` 型に変換
 
-#### 3.2.4 workspaceConfigService.ts
+#### 3.2.5 ieeeService.ts
+
+**主要メソッド**:
+
+```typescript
+class IeeeService {
+  constructor(apiKey?: string);
+
+  // article number（arnumber）から論文データ取得
+  async fetchByArticleNumber(articleNumber: string): Promise<Paper>;
+}
+
+// ページ埋め込み JSON / メタタグのパース（純粋関数・テスト対象）
+export function parseXploreDocumentHtml(html: string, articleNumber: string): Paper | null;
+export function toPaperFromApi(article: IeeeApiArticle, articleNumber: string): Paper | null;
+```
+
+**処理フロー**:
+
+1. `IEEE_API_KEY` があれば Xplore Metadata API を呼ぶ（`article_number` で検索）
+2. 無い、または失敗した場合は論文ページの HTML を取得
+3. `xplGlobal.document.metadata` の JSON を抽出（波括弧の対応を数えて切り出す）
+4. 取れなければ `citation_*` メタタグにフォールバック
+5. 403 / 401 / 429 の場合は、API キー設定か DOI URL 利用を促すエラーを返す
+
+#### 3.2.6 workspaceConfigService.ts
 
 **主要メソッド**:
 

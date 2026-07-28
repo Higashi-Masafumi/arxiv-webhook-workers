@@ -1,5 +1,5 @@
 import { APIResponseError, Client, isFullDatabase } from "@notionhq/client";
-import type { ArxivPaper } from "../types/notion";
+import type { Paper } from "../types/paper";
 import { NotionApiError } from "../utils/errors";
 
 /**
@@ -104,7 +104,7 @@ export class NotionDatabaseService {
   async updatePage(
     accessToken: string,
     pageId: string,
-    paper: ArxivPaper
+    paper: Paper
   ): Promise<void> {
     const notion = new Client({
       auth: accessToken,

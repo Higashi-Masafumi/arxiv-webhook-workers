@@ -1,10 +1,9 @@
+import type { Paper } from "./paper";
+
+export type { Paper, PaperProvider } from "./paper";
+
 /**
  * ArXiv 論文データ
+ * @deprecated 取得元が ArXiv 以外にも広がったため {@link Paper} を使う
  */
-export interface ArxivPaper {
-  title: string;
-  authors: string[];
-  summary: string;
-  link: string;
-  publishedYear: number;
-}
+export type ArxivPaper = Paper;

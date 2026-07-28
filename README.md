@@ -1,6 +1,8 @@
 # ArXiv Webhook Workers
 
-Notion と ArXiv を連携し、ArXiv 論文の URL を Notion データベースに入力すると自動的にメタデータ（タイトル、著者、要約、公開年）を取得・更新する Cloudflare Workers アプリケーション。
+Notion と論文サイトを連携し、論文の URL を Notion データベースに入力すると自動的にメタデータ（タイトル、著者、要約、公開年）を取得・更新する Cloudflare Workers アプリケーション。
+
+ArXiv に加えて **IEEE Xplore・ACM DL・Springer・Nature・Wiley・ScienceDirect などの DOI ベースの論文サイト**にも対応しています。対応範囲と取得の仕組みは [対応している論文サイト](#対応している論文サイト) を参照してください。
 
 ## 技術スタック
 
@@ -9,7 +11,7 @@ Notion と ArXiv を連携し、ArXiv 論文の URL を Notion データベー�
 - **データベース**: Cloudflare D1（トークン・設定管理）
 - **KV ストア**: Cloudflare KV（OAuth state 管理）
 - **定期実行**: Cron Triggers（トークンリフレッシュ）
-- **外部 API**: Notion API, ArXiv API
+- **外部 API**: Notion API, ArXiv API, Crossref API, OpenAlex API, IEEE Xplore Metadata API（任意）
 - **言語**: TypeScript
 
 ## セットアップ
@@ -66,7 +68,27 @@ pnpm wrangler secret put NOTION_CLIENT_SECRET
 
 # Worker URL を wrangler.jsonc の vars.WORKER_URL に設定
 # 例: https://arxiv-webhook-workers.your-subdomain.workers.dev
+
+# （任意）IEEE Xplore Metadata API キー
+# 未設定でも IEEE 論文ページの HTML から取得を試みますが、
+# IEEE 側の bot 対策でブロックされることがあるため設定を推奨します
+# https://developer.ieee.org/ で無料の非商用キーを取得できます
+pnpm wrangler secret put IEEE_API_KEY
+
+# （任意）Crossref / OpenAlex の polite pool 用連絡先メールアドレス
+# 設定するとレート制限が緩和されます（wrangler.jsonc の vars でも可）
+pnpm wrangler secret put CONTACT_EMAIL
 ```
+
+#### 環境変数一覧
+
+| 変数 | 必須 | 説明 |
+| --- | --- | --- |
+| `NOTION_CLIENT_ID` | ✅ | Notion OAuth Client ID |
+| `NOTION_CLIENT_SECRET` | ✅ | Notion OAuth Client Secret |
+| `WORKER_URL` | ✅ | デプロイ先の Worker URL |
+| `IEEE_API_KEY` | – | IEEE Xplore Metadata API キー。未設定時は HTML フォールバック |
+| `CONTACT_EMAIL` | – | Crossref / OpenAlex の polite pool 用連絡先 |
 
 ### 6. デプロイ
 
@@ -102,8 +124,35 @@ pnpm wrangler d1 execute arxiv-notion-db --remote --file=./migrations/0002_add_p
 ### 3. 論文情報の自動取得
 
 1. データベースに新しいページを作成
-2. Link プロパティに ArXiv URL を入力（例: `https://arxiv.org/abs/2301.12345`）
+2. Link プロパティに論文の URL を入力（例: `https://arxiv.org/abs/2301.12345`、`https://ieeexplore.ieee.org/document/9156697`）
 3. 数秒後、自動的にタイトル・著者・要約が入力されます
+
+## 対応している論文サイト
+
+URL の形から取得ルートを自動で選び、足りないフィールド（特にアブストラクト）は
+DOI をキーに別のソースで補完します。
+
+| URL の例 | 取得ルート |
+| --- | --- |
+| `arxiv.org/abs/2301.12345`<br>`arxiv.org/pdf/2301.12345v2`<br>`arxiv.org/abs/cs/0112017`（旧形式） | ArXiv API |
+| `ieeexplore.ieee.org/document/9156697`<br>`ieeexplore.ieee.org/stamp/stamp.jsp?arnumber=9156697` | IEEE Xplore Metadata API（`IEEE_API_KEY` 設定時）<br>→ ページ埋め込み JSON → citation メタタグ |
+| `doi.org/10.1145/...`<br>`dl.acm.org/doi/10.1145/...`<br>`link.springer.com/article/10.1007/...`<br>`onlinelibrary.wiley.com/doi/10.1002/...`<br>`nature.com/articles/s41586-...` | Crossref API → OpenAlex API |
+| 上記以外（ScienceDirect / MDPI / ACL Anthology / bioRxiv など） | ページの `citation_*` / Dublin Core メタタグ<br>→ DOI が判明すれば Crossref / OpenAlex で補完 |
+
+### 設計上の注意
+
+- **サイトごとの HTML スクレイピングはしていません。** 学術サイトの大半は
+  Highwire Press 形式の `citation_*` メタタグを出力しているため、
+  CSS セレクタを出版社ごとに書き分けるより遥かに壊れにくくなります。
+- **IEEE Xplore は bot 対策があります。** Cloudflare Workers の IP から
+  HTML を取得すると 403 が返ることがあります。安定運用したい場合は
+  `IEEE_API_KEY` を設定するか、IEEE の URL ではなく DOI の URL
+  （`https://doi.org/10.1109/...`）を Link プロパティに入れてください。
+- **アブストラクトが取れないことがあります。** IEEE は Crossref に
+  アブストラクトを登録していない論文が多いため、OpenAlex にフォールバックします。
+  どちらにも無い場合は要約欄が空のまま更新されます。
+- **ペイウォールの内側は取得しません。** 取得対象は各サイトが公開している
+  書誌メタデータのみです。
 
 ## 開発
 
@@ -117,6 +166,16 @@ pnpm dev
 
 ```bash
 pnpm cf-typegen
+```
+
+### テスト・型チェック
+
+```bash
+# パーサー・URL 判定のユニットテスト
+pnpm test
+
+# 型チェック
+pnpm typecheck
 ```
 
 ### D1 データベースの操作
@@ -141,8 +200,10 @@ pnpm wrangler d1 execute arxiv-notion-db --remote --command="SELECT * FROM integ
 ## 機能
 
 - ✅ Notion OAuth 2.0 認証
-- ✅ ArXiv ワークスペース自動セットアップ（ページ + データベース自動作成）
+- ✅ ワークスペース自動セットアップ（ページ + データベース自動作成）
 - ✅ ArXiv 論文メタデータ自動取得
+- ✅ IEEE Xplore / DOI ベースの論文サイトからのメタデータ自動取得
+- ✅ 取得元をまたいだメタデータ補完（Crossref / OpenAlex）
 - ✅ Notion ページ自動更新
 - ✅ トークン自動リフレッシュ（Cron Triggers）
 - ✅ D1 による永続化

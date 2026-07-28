@@ -1,28 +1,13 @@
 import { ValidationError } from "./errors";
 
-/**
- * ArXiv URL のパターン
- */
-const ARXIV_URL_PATTERN =
-  /arxiv\.org\/(abs|pdf)\/(\d{4}\.\d{4,5})(v\d+)?(\.pdf)?/;
-
-/**
- * ArXiv URL を検証
- */
-export function validateArxivUrl(url: string): boolean {
-  return ARXIV_URL_PATTERN.test(url);
-}
-
-/**
- * ArXiv ID を抽出
- */
-export function extractArxivId(url: string): string {
-  const match = url.match(/arxiv\.org\/(abs|pdf)\/(\d{4}\.\d{4,5})/);
-  if (!match) {
-    throw new ValidationError(`Invalid ArXiv URL: ${url}`);
-  }
-  return match[2];
-}
+// 論文 URL のパース・検証は utils/paperUrl.ts に移動
+export {
+  detectPaperUrl,
+  extractArxivIdOrNull,
+  extractDoiFromUrl,
+  normalizeDoi,
+  validatePaperUrl,
+} from "./paperUrl";
 
 /**
  * 必須フィールドを検証

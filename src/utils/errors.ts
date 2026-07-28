@@ -67,6 +67,26 @@ export class ArxivApiError extends AppError {
 }
 
 /**
+ * 論文メタデータの取得に失敗した（ArXiv 以外の取得元）
+ */
+export class PaperFetchError extends AppError {
+  constructor(message: string, statusCode: number = 502) {
+    super(message, statusCode, "PAPER_FETCH_ERROR");
+  }
+}
+
+/**
+ * 論文メタデータを取得できる形式の URL ではなかった
+ *
+ * 取得元の問題ではなくユーザー入力の問題なので 422 を返す
+ */
+export class UnsupportedPaperUrlError extends AppError {
+  constructor(message: string) {
+    super(message, 422, "UNSUPPORTED_PAPER_URL");
+  }
+}
+
+/**
  * D1 データベースエラー
  */
 export class DatabaseError extends AppError {

@@ -17,7 +17,7 @@
    - 1.2 KV データ構造（簡素化）
    - 1.3 D1 データ構造
 2. [Notion API 関連型](#2-notion-api-関連型)
-3. [ArXiv API 関連型](#3-arxiv-api-関連型)
+3. [論文メタデータ関連型](#3-論文メタデータ関連型)
 4. [Webhook 関連型](#4-webhook-関連型)
 5. [サービス層インターフェース](#5-サービス層インターフェース)
    - 5.1 Notion Auth Service
@@ -354,23 +354,49 @@ export interface SplitRichTextOptions {
 
 ---
 
-## 3. ArXiv API 関連型
+## 3. 論文メタデータ関連型
 
-### 3.1 ArXiv データ型
+### 3.1 論文データ型（取得元非依存）
+
+**ファイル**: `src/types/paper.ts`
+
+```typescript
+/**
+ * 論文メタデータをどこから取得したか
+ */
+export type PaperProvider =
+  | "arxiv"     // ArXiv API
+  | "ieee-api"  // IEEE Xplore Metadata API
+  | "ieee-html" // IEEE Xplore のページ埋め込み JSON
+  | "crossref"  // Crossref REST API
+  | "openalex"  // OpenAlex API
+  | "html-meta"; // citation_* / Dublin Core メタタグ
+
+/**
+ * 取得元に依存しない論文メタデータ（内部表現）
+ */
+export interface Paper {
+  title: string;
+  authors: string[]; // 著者名の配列（取得できない場合は空配列）
+  summary: string; // アブストラクト（取得できない場合は空文字列）
+  link: string; // Notion の Link プロパティに書き戻す正規 URL
+  publishedYear: number | null; // 4桁の年（取得できない場合は null）
+  doi?: string; // 小文字に正規化した DOI。補完時の検索キーにも使う
+  provider: PaperProvider;
+}
+```
+
+`ArxivPaper` は `Paper` のエイリアスとして `src/types/notion.ts` に残しているが非推奨。
+
+`summary` / `authors` / `publishedYear` は ArXiv 以外の取得元では欠けうるため、
+`paperService` が DOI をキーに Crossref / OpenAlex で補完を試みる。
+それでも埋まらない場合は空のまま Notion に書き込まれる。
+
+### 3.2 ArXiv API レスポンス型
 
 **ファイル**: `src/types/arxiv.ts`
 
 ```typescript
-/**
- * ArXiv 論文データ（内部表現）
- */
-export interface ArxivPaper {
-  title: string;
-  authors: string[]; // 著者名の配列
-  summary: string;
-  link: string; // ArXiv URL
-  publishedYear: number; // 4桁の年
-}
 
 /**
  * ArXiv API レスポンス（Atom XML パース後）
