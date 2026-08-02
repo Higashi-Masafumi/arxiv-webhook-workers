@@ -1,9 +1,10 @@
 /**
  * 論文メタデータをどこから取得したか
  * - openalex:  OpenAlex API
+ * - datacite:  DataCite REST API（arXiv などのプレプリント）
  * - crossref:  Crossref REST API
  */
-export type PaperProvider = "openalex" | "crossref";
+export type PaperProvider = "openalex" | "datacite" | "crossref";
 
 /**
  * 取得元に依存しない論文メタデータ

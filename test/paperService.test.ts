@@ -63,6 +63,39 @@ describe("PaperService", () => {
     expect(calls[0]).toContain("10.48550/arxiv.1706.03762");
   });
 
+  it("falls back to DataCite for arXiv DOIs that OpenAlex does not index", async () => {
+    // OpenAlex の arXiv DOI 収録は歯抜けで、実際に 1706.03762 は 404 が返る
+    stubFetch([
+      ["api.openalex.org", () => new Response("not found", { status: 404 })],
+      [
+        "api.datacite.org",
+        () =>
+          Response.json({
+            data: {
+              attributes: {
+                doi: "10.48550/arxiv.1706.03762",
+                url: "https://arxiv.org/abs/1706.03762",
+                titles: [{ title: "Attention Is All You Need" }],
+                publicationYear: 2017,
+                creators: [{ givenName: "Ashish", familyName: "Vaswani" }],
+                descriptions: [
+                  { description: "The dominant models.", descriptionType: "Abstract" },
+                ],
+              },
+            },
+          }),
+      ],
+    ]);
+
+    const paper = await service().fetchPaperByUrl("https://arxiv.org/abs/1706.03762");
+
+    expect(paper).toMatchObject({
+      title: "Attention Is All You Need",
+      publishedYear: 2017,
+      provider: "datacite",
+    });
+  });
+
   it("keeps the URL the user pasted as the Notion link", async () => {
     stubFetch([["api.openalex.org", () => Response.json(OPENALEX_WORK)]]);
 
@@ -82,9 +115,10 @@ describe("PaperService", () => {
     expect(calls[1]).toContain("10.1109/cvpr42600.2020.00975");
   });
 
-  it("falls through to Crossref when OpenAlex has no record", async () => {
+  it("falls through to Crossref when the earlier providers have no record", async () => {
     stubFetch([
       ["api.openalex.org", () => new Response("not found", { status: 404 })],
+      ["api.datacite.org", () => new Response("not found", { status: 404 })],
       ["api.crossref.org", () => Response.json(CROSSREF_WORK)],
     ]);
 
@@ -97,6 +131,7 @@ describe("PaperService", () => {
     stubFetch([
       // 壊れた JSON を返す取得元。リトライしても直らない類の失敗
       ["api.openalex.org", () => new Response("<html>not json</html>", { status: 200 })],
+      ["api.datacite.org", () => new Response("not found", { status: 404 })],
       ["api.crossref.org", () => Response.json(CROSSREF_WORK)],
     ]);
 
@@ -108,6 +143,7 @@ describe("PaperService", () => {
   it("reports when no provider has the DOI", async () => {
     stubFetch([
       ["api.openalex.org", () => new Response("not found", { status: 404 })],
+      ["api.datacite.org", () => new Response("not found", { status: 404 })],
       ["api.crossref.org", () => new Response("not found", { status: 404 })],
     ]);
 

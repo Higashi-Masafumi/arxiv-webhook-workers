@@ -118,6 +118,7 @@ arxiv-webhook-workers/
 │   │   ├── httpClient.ts           # 共通 HTTP クライアント（タイムアウト・リトライ）
 │   │   ├── doiMetadataClient.ts    # DOI 書誌 API クライアントの抽象基底クラス
 │   │   ├── crossrefClient.ts       # Crossref API クライアント
+│   │   ├── dataCiteClient.ts       # DataCite API クライアント（arXiv など）
 │   │   ├── openAlexClient.ts       # OpenAlex API クライアント
 │   │   ├── doiFromPage.ts          # 論文ページから DOI だけを拾う
 │   │   └── d1Client.ts             # D1 クライアントヘルパー
@@ -589,8 +590,12 @@ class PaperService {
   仕事なので、ページから読み取るのは **DOI 1 つだけ**に限定している。
 - **HTML を触る場所は `libs/doiFromPage.ts` の 1 箇所だけ。** 参考文献リストの DOI を
   誤って拾わないよう、`citation_doi` → 埋め込み JSON → 本文中の最初の DOI の順に見る。
-- **取得元をまたぐマージはしない。** OpenAlex と Crossref は同じ interface を満たす
-  取得元として順に試し、先に答えた方をそのまま使う。片方が落ちても次に進む。
+- **取得元をまたぐマージはしない。** OpenAlex / DataCite / Crossref は同じ interface を
+  満たす取得元として順に試し、先に答えた方をそのまま使う。1 つが落ちても次に進む。
+- **DataCite を Crossref より先に置く。** この 2 つは排他的な登録機関なので順序は
+  空振りの回数にしか影響せず、主な入力である arXiv の DOI が DataCite 側だから。
+  OpenAlex は arXiv DOI での収録が歯抜け（実測で 3 件中 2 件が 404）なので、
+  DataCite 抜きでは arXiv 論文を引けない。
 - **API クライアントは抽象基底クラスに寄せる。** `libs/doiMetadataClient.ts` が
   「DOI で 1 件引く / 404 は null / polite pool 用に連絡先を名乗る / レスポンスの
   マークアップを落とす」を持ち、派生クラスはエンドポイントの組み立てと

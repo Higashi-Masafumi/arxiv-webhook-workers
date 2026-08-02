@@ -11,7 +11,7 @@ ArXiv に加えて **IEEE Xplore・ACM DL・Springer・Nature・Wiley・ScienceD
 - **データベース**: Cloudflare D1（トークン・設定管理）
 - **KV ストア**: Cloudflare KV（OAuth state 管理）
 - **定期実行**: Cron Triggers（トークンリフレッシュ）
-- **外部 API**: Notion API, OpenAlex API, Crossref API
+- **外部 API**: Notion API, OpenAlex API, DataCite API, Crossref API
 - **言語**: TypeScript
 
 ## セットアップ
@@ -126,7 +126,7 @@ pnpm wrangler d1 execute arxiv-notion-db --remote --file=./migrations/0002_add_p
 サイトごとの取得ロジックは持ちません。
 
 ```
-URL --(文字列だけで決まるか)--> DOI --> OpenAlex（無ければ Crossref）--> メタデータ
+URL --(文字列だけで決まるか)--> DOI --> OpenAlex -> DataCite -> Crossref --> メタデータ
      \--(決まらなければページを1回見て DOI を探す)--/
 ```
 
@@ -146,8 +146,12 @@ URL --(文字列だけで決まるか)--> DOI --> OpenAlex（無ければ Crossr
 - **arXiv 公式 API (export.arxiv.org) は使っていません。** クラウド事業者の IP からの
   自動アクセスをまとめて遮断することがあり、その間 403 が返り続けてリトライでも
   回復しないためです。arXiv 論文には投稿時に DataCite DOI
-  (`10.48550/arXiv.xxxx`) が振られるので、それをキーに OpenAlex から引いています。
-  OpenAlex は API キー不要・CC0 で、arXiv 以外の出版社もほぼ全て同じ経路でカバーできます。
+  (`10.48550/arXiv.xxxx`) が振られるので、それをキーに書誌 API から引いています。
+- **取得元は OpenAlex → DataCite → Crossref の順に試します。** OpenAlex は API キー
+  不要・CC0 で広くカバーしますが、**arXiv の DataCite DOI は収録が歯抜け**です
+  （実測で 3 件中 2 件が 404）。arXiv DOI の登録元である DataCite を挟むことで
+  arXiv 論文を確実に取得できます。DataCite と Crossref は排他的な登録機関なので、
+  順序は空振りの回数にしか影響しません。
 - **IEEE Xplore は bot 対策があります。** DOI が URL に含まれないためページを
   取得しますが、Cloudflare Workers の IP からは 403 が返ることがあります。
   その場合は IEEE の URL ではなく DOI の URL
@@ -209,7 +213,7 @@ pnpm wrangler d1 execute arxiv-notion-db --remote --command="SELECT * FROM integ
 - ✅ Notion OAuth 2.0 認証
 - ✅ ワークスペース自動セットアップ（ページ + データベース自動作成）
 - ✅ 論文 URL の DOI 解決（arXiv / DOI ベースの論文サイト / ページからの DOI 抽出）
-- ✅ DOI からのメタデータ取得（OpenAlex → Crossref）
+- ✅ DOI からのメタデータ取得（OpenAlex → DataCite → Crossref）
 - ✅ Notion ページ自動更新
 - ✅ トークン自動リフレッシュ（Cron Triggers）
 - ✅ D1 による永続化

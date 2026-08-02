@@ -1,4 +1,5 @@
 import { CrossrefClient } from "../libs/crossrefClient";
+import { DataCiteClient } from "../libs/dataCiteClient";
 import { fetchDoiFromPage } from "../libs/doiFromPage";
 import { OpenAlexClient } from "../libs/openAlexClient";
 import type { Bindings } from "../types/bindings";
@@ -23,9 +24,17 @@ export class PaperService {
   private readonly providers: DoiMetadataProvider[];
 
   constructor(env: Pick<Bindings, "CONTACT_EMAIL">) {
-    // OpenAlex を主に、収録漏れを Crossref で拾う。どちらも同じ interface なので
-    // 「先に答えた方を使う」以上の調整はしない（取得元をまたぐマージはしない）
-    this.providers = [new OpenAlexClient(env.CONTACT_EMAIL), new CrossrefClient(env.CONTACT_EMAIL)];
+    // 先に答えた取得元をそのまま使う（取得元をまたぐマージはしない）。
+    //
+    // DataCite を Crossref より先に置いているのは、この 2 つが排他的な登録機関で
+    // 順序は空振りの回数にしか影響せず、主な入力である arXiv の DOI が
+    // DataCite 側だから。OpenAlex は arXiv DOI での収録が歯抜けなので、
+    // arXiv を DataCite 抜きで引くことはできない。
+    this.providers = [
+      new OpenAlexClient(env.CONTACT_EMAIL),
+      new DataCiteClient(env.CONTACT_EMAIL),
+      new CrossrefClient(env.CONTACT_EMAIL),
+    ];
   }
 
   /**
