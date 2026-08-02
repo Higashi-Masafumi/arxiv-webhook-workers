@@ -12,7 +12,7 @@ import { fetchWithRetry } from "./httpClient";
  * 「URL -> DOI -> 書誌 API」という全体の流れは変わらない。
  *
  * API キーは任意。未設定なら何もせず、呼び出し側は DOI URL の利用を促す。
- * 非商用の無料キーを https://developer.ieee.org/ で取得できる。
+ * キーは https://developer.ieee.org/ で登録・審査のうえ発行される。
  *
  * @see https://developer.ieee.org/docs
  */

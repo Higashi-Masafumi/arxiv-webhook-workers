@@ -71,7 +71,7 @@ pnpm wrangler secret put NOTION_CLIENT_SECRET
 
 # （任意）IEEE Xplore Metadata API キー
 # ieeexplore.ieee.org の URL から DOI を引くのに使います
-# https://developer.ieee.org/ で非商用の無料キーを取得できます
+# https://developer.ieee.org/ で登録・審査のうえ発行されます
 # 未設定でも DOI の URL を貼れば IEEE 論文を取得できます
 pnpm wrangler secret put IEEE_API_KEY
 
@@ -87,7 +87,7 @@ pnpm wrangler secret put CONTACT_EMAIL
 | `NOTION_CLIENT_ID` | ✅ | Notion OAuth Client ID |
 | `NOTION_CLIENT_SECRET` | ✅ | Notion OAuth Client Secret |
 | `WORKER_URL` | ✅ | デプロイ先の Worker URL |
-| `IEEE_API_KEY` | – | IEEE Xplore Metadata API キー。`ieeexplore.ieee.org` の URL に必要 |
+| `IEEE_API_KEY` | – | IEEE Xplore Metadata API キー。`ieeexplore.ieee.org` の URL に必要。[developer.ieee.org](https://developer.ieee.org/) で登録・審査のうえ発行 |
 | `CONTACT_EMAIL` | – | Crossref / OpenAlex の polite pool 用連絡先 |
 
 ### 6. デプロイ
@@ -134,7 +134,8 @@ pnpm wrangler d1 execute arxiv-notion-db --remote --file=./migrations/0002_add_p
 
 ```
 URL --(文字列だけで決まるか)--> DOI --> OpenAlex -> DataCite -> Crossref --> メタデータ
-     \--(決まらなければページを1回見て DOI を探す)--/
+     |--(IEEE なら公式 API で DOI を引く)--------/
+     \--(それ以外はページを1回見て DOI を探す)--/
 ```
 
 | URL の例 | DOI の求め方 |
