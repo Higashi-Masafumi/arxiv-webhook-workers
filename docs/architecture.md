@@ -116,6 +116,7 @@ arxiv-webhook-workers/
 │   ├── libs/
 │   │   ├── notionClient.ts         # Notion SDK ラッパー
 │   │   ├── httpClient.ts           # 共通 HTTP クライアント（タイムアウト・リトライ）
+│   │   ├── doiMetadataClient.ts    # DOI 書誌 API クライアントの抽象基底クラス
 │   │   ├── crossrefClient.ts       # Crossref API クライアント
 │   │   ├── openAlexClient.ts       # OpenAlex API クライアント
 │   │   ├── doiFromPage.ts          # 論文ページから DOI だけを拾う
@@ -131,7 +132,6 @@ arxiv-webhook-workers/
 │   │   ├── errors.ts               # カスタムエラークラス
 │   │   ├── validation.ts           # 入力検証ユーティリティ
 │   │   ├── paperUrl.ts             # 論文 URL -> DOI（純粋関数）
-│   │   ├── html.ts                 # API レスポンスのマークアップ除去
 │   │   └── logger.ts               # ロギングユーティリティ
 │   └── middleware/
 │       ├── errorHandler.ts         # エラーハンドリングミドルウェア
@@ -556,7 +556,7 @@ URL --(文字列だけで決まるか)--> DOI --> 書誌 API --> Paper
 **主要メソッド**:
 
 ```typescript
-/** DOI から書誌情報を引ける取得元。PaperService は中身を知らない */
+/** DOI から書誌情報を引ける取得元。PaperService は中身を知らない（types/paper.ts） */
 interface DoiMetadataProvider {
   readonly name: string;
   fetchByDoi(doi: string): Promise<Paper | null>;
@@ -591,6 +591,10 @@ class PaperService {
   誤って拾わないよう、`citation_doi` → 埋め込み JSON → 本文中の最初の DOI の順に見る。
 - **取得元をまたぐマージはしない。** OpenAlex と Crossref は同じ interface を満たす
   取得元として順に試し、先に答えた方をそのまま使う。片方が落ちても次に進む。
+- **API クライアントは抽象基底クラスに寄せる。** `libs/doiMetadataClient.ts` が
+  「DOI で 1 件引く / 404 は null / polite pool 用に連絡先を名乗る / レスポンスの
+  マークアップを落とす」を持ち、派生クラスはエンドポイントの組み立てと
+  レスポンスの読み方だけを実装する（`DoiMetadataClient<TResponse>`）。
 - **IEEE Xplore は bot 対策で 403 を返しうる。** その場合は DOI URL の利用を促す
   エラーメッセージを返す。
 

@@ -2,20 +2,9 @@ import { CrossrefClient } from "../libs/crossrefClient";
 import { fetchDoiFromPage } from "../libs/doiFromPage";
 import { OpenAlexClient } from "../libs/openAlexClient";
 import type { Bindings } from "../types/bindings";
-import type { Paper } from "../types/paper";
+import type { DoiMetadataProvider, Paper } from "../types/paper";
 import { PaperFetchError, UnsupportedPaperUrlError } from "../utils/errors";
 import { resolveDoiFromUrl } from "../utils/paperUrl";
-
-/**
- * DOI から書誌情報を引ける取得元
- *
- * 取得元はこの形さえ満たしていればよく、PaperService は中身を知らない。
- */
-export interface DoiMetadataProvider {
-  readonly name: string;
-  /** 見つからなければ null。通信・パースの失敗は例外 */
-  fetchByDoi(doi: string): Promise<Paper | null>;
-}
 
 /**
  * 論文メタデータ取得

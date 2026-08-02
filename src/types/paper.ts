@@ -21,3 +21,14 @@ export interface Paper {
   doi?: string;
   provider: PaperProvider;
 }
+
+/**
+ * DOI から書誌情報を引ける取得元
+ *
+ * PaperService はこの形しか知らない。取得元を足すときはこれを満たすだけでよい。
+ */
+export interface DoiMetadataProvider {
+  readonly name: string;
+  /** 収録されていなければ null。通信・パースの失敗は例外 */
+  fetchByDoi(doi: string): Promise<Paper | null>;
+}

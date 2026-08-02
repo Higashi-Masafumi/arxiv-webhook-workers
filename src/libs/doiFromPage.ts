@@ -31,14 +31,17 @@ const BROWSER_HEADERS = {
  * 素の `10.xxxx/...` を先に拾うと参考文献リストの DOI を掴みうるので、
  * 「この論文自身の DOI」だと分かる書き方を優先する。
  */
-const DOI_SOURCES: RegExp[] = [
-  // Highwire Press / Dublin Core の meta タグ（属性の順序は問わない）
-  /<meta[^>]+(?:name|property)=["'](?:citation_doi|dc\.identifier|doi)["'][^>]+content=["']([^"']+)["']/i,
-  /<meta[^>]+content=["']([^"']+)["'][^>]+(?:name|property)=["'](?:citation_doi|dc\.identifier|doi)["']/i,
+const DOI_SOURCES: Array<(html: string) => string | undefined> = [
+  // Highwire Press / Dublin Core の meta タグ。属性の順序は問わないので、
+  // 該当する meta タグを 1 つ切り出してから content を読む
+  (html) =>
+    html
+      .match(/<meta[^>]*\b(?:name|property)=["'](?:citation_doi|dc\.identifier|doi)["'][^>]*>/i)?.[0]
+      ?.match(/content=["']([^"']+)["']/i)?.[1],
   // ページに埋め込まれた JSON（IEEE Xplore の xplGlobal など）
-  /"doi"\s*:\s*"(10\.[^"]+)"/i,
+  (html) => html.match(/"doi"\s*:\s*"(10\.[^"]+)"/i)?.[1],
   // 最後の手段として本文中の最初の DOI
-  /(10\.\d{4,9}\/[^\s"'<>&#]+)/,
+  (html) => html.match(/10\.\d{4,9}\/[^\s"'<>&#]+/)?.[0],
 ];
 
 /**
@@ -66,8 +69,8 @@ export async function fetchDoiFromPage(pageUrl: string): Promise<string | undefi
  * HTML から DOI を取り出す（テスト用に純粋関数として切り出し）
  */
 export function findDoi(html: string): string | undefined {
-  for (const pattern of DOI_SOURCES) {
-    const doi = normalizeDoi(html.match(pattern)?.[1]);
+  for (const findIn of DOI_SOURCES) {
+    const doi = normalizeDoi(findIn(html));
     if (doi) return doi;
   }
   return undefined;

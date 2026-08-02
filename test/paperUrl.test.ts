@@ -1,40 +1,29 @@
 import { describe, expect, it } from "vitest";
-import {
-  arxivDoi,
-  extractArxivIdOrNull,
-  normalizeDoi,
-  resolveDoiFromUrl,
-  validatePaperUrl,
-} from "../src/utils/paperUrl";
+import { normalizeDoi, resolveDoiFromUrl, validatePaperUrl } from "../src/utils/paperUrl";
 
-describe("extractArxivIdOrNull", () => {
+describe("resolveDoiFromUrl: arXiv", () => {
   it.each([
-    ["https://arxiv.org/abs/2301.12345", "2301.12345"],
-    ["https://arxiv.org/abs/2301.12345v2", "2301.12345"],
-    ["http://arxiv.org/abs/1706.03762", "1706.03762"],
-    ["https://www.arxiv.org/abs/1706.03762", "1706.03762"],
-    ["https://arxiv.org/pdf/2301.12345.pdf", "2301.12345"],
-    ["https://arxiv.org/pdf/2301.12345v3.pdf", "2301.12345"],
-    ["https://arxiv.org/html/2301.12345v1", "2301.12345"],
-    ["https://arxiv.org/abs/2301.1234", "2301.1234"],
-    ["https://export.arxiv.org/abs/2301.12345", "2301.12345"],
+    ["https://arxiv.org/abs/2301.12345", "10.48550/arxiv.2301.12345"],
+    ["https://arxiv.org/abs/2301.12345v2", "10.48550/arxiv.2301.12345"],
+    ["http://arxiv.org/abs/1706.03762", "10.48550/arxiv.1706.03762"],
+    ["https://www.arxiv.org/abs/1706.03762", "10.48550/arxiv.1706.03762"],
+    ["https://arxiv.org/pdf/2301.12345.pdf", "10.48550/arxiv.2301.12345"],
+    ["https://arxiv.org/pdf/2301.12345v3.pdf", "10.48550/arxiv.2301.12345"],
+    ["https://arxiv.org/html/2301.12345v1", "10.48550/arxiv.2301.12345"],
+    ["https://export.arxiv.org/abs/2301.12345", "10.48550/arxiv.2301.12345"],
     // 2007 年以前の旧形式 ID
-    ["https://arxiv.org/abs/cs/0112017", "cs/0112017"],
-    ["https://arxiv.org/abs/math.GT/0309136", "math.GT/0309136"],
-    ["https://arxiv.org/abs/hep-th/9901001v2", "hep-th/9901001"],
-    // arXiv の DataCite DOI
-    ["https://doi.org/10.48550/arXiv.2301.12345", "2301.12345"],
-  ])("parses %s", (url, expected) => {
-    expect(extractArxivIdOrNull(url)).toBe(expected);
+    ["https://arxiv.org/abs/cs/0112017", "10.48550/arxiv.cs/0112017"],
+    ["https://arxiv.org/abs/math.GT/0309136", "10.48550/arxiv.math.gt/0309136"],
+    ["https://arxiv.org/abs/hep-th/9901001v2", "10.48550/arxiv.hep-th/9901001"],
+    // arXiv DOI で渡された場合もバージョン接尾辞を落として正規化する
+    ["https://doi.org/10.48550/arXiv.2301.12345", "10.48550/arxiv.2301.12345"],
+    ["https://doi.org/10.48550/arXiv.2301.12345v2", "10.48550/arxiv.2301.12345"],
+  ])("builds the DataCite DOI for %s", (url, expected) => {
+    expect(resolveDoiFromUrl(url)).toBe(expected);
   });
 
-  it.each([
-    "https://ieeexplore.ieee.org/document/9156697",
-    "https://arxiv.org/list/cs.CL/2301",
-    "https://example.com/abs/2301.12345",
-    "not a url",
-  ])("returns null for %s", (url) => {
-    expect(extractArxivIdOrNull(url)).toBeNull();
+  it("is not fooled by arXiv-looking paths on other hosts", () => {
+    expect(resolveDoiFromUrl("https://example.com/abs/2301.12345")).toBeUndefined();
   });
 });
 
@@ -79,11 +68,6 @@ describe("resolveDoiFromUrl", () => {
     ["https://www.nature.com/articles/nature12373", "10.1038/nature12373"],
     // クエリ文字列に入っている場合
     ["https://example.org/landing?doi=10.1145/3292500.3330701", "10.1145/3292500.3330701"],
-    // arXiv は投稿時の DataCite DOI を URL から組み立てられる
-    ["https://arxiv.org/abs/1706.03762", "10.48550/arxiv.1706.03762"],
-    ["https://arxiv.org/pdf/2301.12345v3.pdf", "10.48550/arxiv.2301.12345"],
-    ["https://arxiv.org/abs/cs/0112017", "10.48550/arxiv.cs/0112017"],
-    ["https://doi.org/10.48550/arXiv.2301.12345", "10.48550/arxiv.2301.12345"],
   ])("extracts DOI from %s", (url, expected) => {
     expect(resolveDoiFromUrl(url)).toBe(expected);
   });
@@ -98,15 +82,6 @@ describe("resolveDoiFromUrl", () => {
     "not a url",
   ])("returns undefined for %s", (url) => {
     expect(resolveDoiFromUrl(url)).toBeUndefined();
-  });
-});
-
-describe("arxivDoi", () => {
-  it.each([
-    ["2301.12345", "10.48550/arxiv.2301.12345"],
-    ["cs/0112017", "10.48550/arxiv.cs/0112017"],
-  ])("builds the DataCite DOI for %s", (arxivId, expected) => {
-    expect(arxivDoi(arxivId)).toBe(expected);
   });
 });
 

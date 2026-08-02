@@ -5,7 +5,7 @@
  * タイムアウトと 429 / 5xx リトライを 1 箇所にまとめる。
  */
 
-export interface FetchOptions {
+interface FetchOptions {
   /** リクエストごとのタイムアウト（ミリ秒） */
   timeoutMs?: number;
   /** リトライ回数（初回は含まない） */

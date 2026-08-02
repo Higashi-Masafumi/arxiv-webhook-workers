@@ -25,15 +25,6 @@ export interface Integration {
 }
 
 /**
- * OAuth States テーブルのレコード型（将来用）
- */
-export interface OAuthStateRecord {
-  state: string;
-  created_at: string; // ISO 8601
-  expires_at: string; // ISO 8601
-}
-
-/**
  * Workspace 作成用の入力型
  */
 export interface CreateWorkspaceInput {

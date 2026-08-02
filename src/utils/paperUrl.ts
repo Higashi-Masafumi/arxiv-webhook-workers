@@ -43,8 +43,9 @@ export function resolveDoiFromUrl(rawUrl: string): string | undefined {
   const url = safeParseUrl(rawUrl);
   if (!url) return undefined;
 
+  // arXiv 論文には投稿時に DataCite DOI が振られるので、ID から組み立てられる
   const arxivId = extractArxivIdOrNull(url);
-  if (arxivId) return arxivDoi(arxivId);
+  if (arxivId) return `10.48550/arxiv.${arxivId.toLowerCase()}`;
 
   const host = url.hostname.toLowerCase().replace(/^www\./, "");
 
@@ -70,16 +71,6 @@ export function resolveDoiFromUrl(rawUrl: string): string | undefined {
 }
 
 /**
- * arXiv ID から DataCite DOI を組み立てる
- *
- * arXiv 論文には投稿時に DOI が自動で振られるため、arXiv 公式 API を使わずに
- * 他の書誌 API から引ける。
- */
-export function arxivDoi(arxivId: string): string {
-  return `10.48550/arxiv.${arxivId.toLowerCase()}`;
-}
-
-/**
  * arXiv URL / arXiv DOI から ID を取り出す。該当しなければ null
  *
  * 対応形式:
@@ -90,7 +81,7 @@ export function arxivDoi(arxivId: string): string {
  *   https://arxiv.org/abs/cs/0112017      (旧形式)
  *   https://doi.org/10.48550/arXiv.2301.12345
  */
-export function extractArxivIdOrNull(input: URL | string): string | null {
+function extractArxivIdOrNull(input: URL | string): string | null {
   const url = typeof input === "string" ? safeParseUrl(input) : input;
   if (!url) return null;
 
@@ -157,7 +148,7 @@ export function normalizeDoi(value: string | undefined | null): string | undefin
 /**
  * http(s) URL としてパースする
  */
-export function parseHttpUrl(rawUrl: string): URL {
+function parseHttpUrl(rawUrl: string): URL {
   let url: URL;
   try {
     url = new URL(rawUrl.trim());
