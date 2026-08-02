@@ -7,7 +7,7 @@ import { ArxivService } from "./arxivService";
 import { IeeeService } from "./ieeeService";
 import { parseCitationMeta } from "../utils/citationMeta";
 import { PaperFetchError, UnsupportedPaperUrlError } from "../utils/errors";
-import { detectPaperUrl } from "../utils/paperUrl";
+import { arxivAbsUrl, arxivDoi, detectPaperUrl } from "../utils/paperUrl";
 
 /** meta タグは <head> にあるので、全文を読み込む必要はない */
 const MAX_HTML_BYTES = 1_000_000;
@@ -19,7 +19,7 @@ const MAX_HTML_BYTES = 1_000_000;
  * 別ソースで補完する。
  *
  * ```
- * arxiv.org/abs/...          -> ArXiv API
+ * arxiv.org/abs/...          -> ArXiv API -> (遮断時) OpenAlex -> abs ページ
  * ieeexplore.ieee.org/...    -> IEEE Xplore Metadata API / ページ埋め込み JSON
  * URL から DOI が取れる       -> Crossref -> (abstract 欠落時) OpenAlex
  * それ以外                    -> ページの citation_* meta タグ -> (DOI があれば) Crossref/OpenAlex
@@ -46,8 +46,7 @@ export class PaperService {
 
     switch (target.kind) {
       case "arxiv":
-        // ArXiv API は abstract も必ず返すので補完不要
-        return await this.arxivService.fetchPaperById(target.arxivId);
+        return await this.fetchArxiv(target.arxivId);
 
       case "ieee":
         return await this.enrich(await this.ieeeService.fetchByArticleNumber(target.articleNumber));
@@ -57,6 +56,43 @@ export class PaperService {
 
       case "generic":
         return await this.fetchFromWebPage(target.sourceUrl);
+    }
+  }
+
+  /**
+   * arXiv から取得する。API が使えない場合は DOI 経由 / abs ページに退避する
+   *
+   * arXiv API はクラウド事業者の IP からの自動アクセスをまとめて遮断することがあり、
+   * その間 Workers からは 403 が返り続ける。arXiv 論文には DataCite DOI
+   * (`10.48550/arXiv.xxxx`) が振られているので、遮断中も OpenAlex からほぼ同じ
+   * 書誌情報を取り直せる。
+   */
+  private async fetchArxiv(arxivId: string): Promise<Paper> {
+    // ArXiv API は abstract も必ず返すので、成功した場合は補完不要
+    const fromApi = await this.tryFetch("ArXiv", () =>
+      this.arxivService.fetchPaperById(arxivId)
+    );
+    if (fromApi) return fromApi;
+
+    const doi = arxivDoi(arxivId);
+    const absUrl = arxivAbsUrl(arxivId);
+    console.warn(`[Paper] ArXiv API unavailable for ${arxivId}, falling back to ${doi}`);
+
+    // arXiv DOI は DataCite 登録で Crossref には無いため、OpenAlex を直接引く
+    const openAlex = await this.tryFetch("OpenAlex", () => this.openAlexClient.fetchByDoi(doi));
+    if (openAlex) {
+      // Notion に載せるリンクは OpenAlex の landing page ではなく arXiv を指す
+      return { ...openAlex, link: absUrl };
+    }
+
+    try {
+      return await this.fetchFromWebPage(absUrl, doi);
+    } catch (error) {
+      throw new PaperFetchError(
+        `Could not fetch arXiv:${arxivId} from the arXiv API, OpenAlex, or ${absUrl}. ` +
+          `arXiv may be blocking automated access right now — retry later. ` +
+          `(last error: ${error instanceof Error ? error.message : String(error)})`
+      );
     }
   }
 

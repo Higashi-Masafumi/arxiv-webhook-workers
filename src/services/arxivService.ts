@@ -2,7 +2,7 @@ import { fetchWithRetry } from "../libs/httpClient";
 import type { Paper } from "../types/paper";
 import { ArxivApiError } from "../utils/errors";
 import { normalizeText } from "../utils/html";
-import { extractArxivIdOrNull } from "../utils/paperUrl";
+import { arxivDoi, extractArxivIdOrNull } from "../utils/paperUrl";
 
 /**
  * ArXiv サービス
@@ -13,6 +13,12 @@ export class ArxivService {
   private readonly TIMEOUT = 10000; // 10秒
   private readonly MAX_RETRIES = 3;
   private readonly BASE_RETRY_DELAY_MS = 3000; // 3秒（ArXiv API の推奨インターバル）
+  /**
+   * arXiv は UA を名乗らない自動アクセスを弾くため、連絡先付きで名乗る
+   * @see https://info.arxiv.org/help/api/tou.html
+   */
+  private readonly USER_AGENT =
+    "arxiv-webhook-workers/1.0 (+https://github.com/Higashi-Masafumi/arxiv-webhook-workers)";
 
   /**
    * URL から論文情報を取得
@@ -39,6 +45,10 @@ export class ArxivService {
         timeoutMs: this.TIMEOUT,
         maxRetries: this.MAX_RETRIES,
         baseRetryDelayMs: this.BASE_RETRY_DELAY_MS,
+        headers: {
+          "User-Agent": this.USER_AGENT,
+          Accept: "application/atom+xml",
+        },
       });
     } catch (error) {
       throw new ArxivApiError(
@@ -49,8 +59,14 @@ export class ArxivService {
     }
 
     if (!response.ok) {
+      // 403 は arXiv 側のアクセス遮断。リトライしても回復しないので
+      // 呼び出し側（PaperService）が別経路に切り替えられるよう明示する
+      const hint =
+        response.status === 403
+          ? " (arXiv is blocking automated access from this host)"
+          : "";
       throw new ArxivApiError(
-        `ArXiv API returned ${response.status}`,
+        `ArXiv API returned ${response.status}${hint}`,
         response.status
       );
     }
@@ -130,7 +146,7 @@ export function parseArxivXml(xml: string, arxivId?: string): Paper {
     link,
     publishedYear: Number.isFinite(publishedYear) ? publishedYear : null,
     // arXiv 論文には DataCite DOI が自動で振られる
-    doi: arxivId ? `10.48550/arxiv.${arxivId.toLowerCase()}` : undefined,
+    doi: arxivId ? arxivDoi(arxivId) : undefined,
     provider: "arxiv",
   };
 }

@@ -120,6 +120,23 @@ export function extractArxivIdOrNull(rawUrl: string): string | null {
 }
 
 /**
+ * arXiv ID から DataCite DOI を組み立てる
+ *
+ * arXiv 論文には投稿時に DOI が自動で振られるため、arXiv API が使えない場合の
+ * 代替経路（OpenAlex など）のキーとして使える。
+ */
+export function arxivDoi(arxivId: string): string {
+  return `10.48550/arxiv.${arxivId.toLowerCase()}`;
+}
+
+/**
+ * arXiv ID から abs ページの URL を組み立てる
+ */
+export function arxivAbsUrl(arxivId: string): string {
+  return `https://arxiv.org/abs/${arxivId}`;
+}
+
+/**
  * arXiv ID の末尾の `.pdf` とバージョン接尾辞を落として正規化する
  */
 function normalizeArxivId(raw: string): string | null {
