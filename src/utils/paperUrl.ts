@@ -1,13 +1,14 @@
 import { ValidationError } from "./errors";
 
 /**
- * URL から判定した取得ルート
+ * 論文 URL から DOI を求める（純粋関数）
+ *
+ * このアプリは「どの論文 URL も DOI に変換し、DOI から書誌情報を引く」という
+ * 一本道で動く。取得元ごとの分岐を持たないための唯一の共通キーが DOI。
+ *
+ * ここで扱うのは **ネットワークに出ずに DOI が決まる URL** だけ。
+ * URL の形だけでは決まらない場合は `libs/doiFromPage.ts` がページを見に行く。
  */
-export type PaperUrlTarget =
-  | { kind: "arxiv"; arxivId: string }
-  | { kind: "ieee"; articleNumber: string }
-  | { kind: "doi"; doi: string; sourceUrl: string }
-  | { kind: "generic"; sourceUrl: string };
 
 /**
  * DOI 本体の書式。接尾辞に使える文字は広いので、URL / 引用文で終端になりがちな
@@ -21,9 +22,6 @@ const ARXIV_NEW_ID = /^(\d{4}\.\d{4,5})(?:v\d+)?$/;
 /** arXiv の旧形式 ID: cs/0112017, math.GT/0309136 */
 const ARXIV_OLD_ID = /^([a-z-]+(?:\.[A-Za-z]{2})?\/\d{7})(?:v\d+)?$/;
 
-/** arXiv の DataCite DOI: 10.48550/arXiv.2301.12345 */
-const ARXIV_DOI = /^10\.48550\/arxiv\.(.+)$/i;
-
 /**
  * Nature 系の記事 slug は DOI 接尾辞そのもの
  * 例: /articles/s41586-021-03819-2 -> 10.1038/s41586-021-03819-2
@@ -31,53 +29,54 @@ const ARXIV_DOI = /^10\.48550\/arxiv\.(.+)$/i;
 const NATURE_SLUG = /^\/articles\/([a-z0-9-]+)$/i;
 
 /**
- * URL を解析して、どの取得ルートを使うか決める
+ * URL から DOI を求める。ネットワークに出ずに決まらなければ undefined
  *
- * @throws {ValidationError} URL として解釈できない場合
+ * 対応するのは次の 3 通り:
+ *   1. URL そのものに DOI が含まれる（doi.org / ACM / Springer / Wiley ...）
+ *   2. arXiv     — 投稿時に振られる DataCite DOI を ID から組み立てられる
+ *   3. Nature 系 — 記事 slug が DOI 接尾辞と一致する
+ *
+ * 2 と 3 は「URL の文字列だけで DOI が確定する」という同じ理由で特例にしている。
+ * 確定しないサイト（IEEE Xplore など）はページを取得して探す。
  */
-export function detectPaperUrl(rawUrl: string): PaperUrlTarget {
-  const url = parseHttpUrl(rawUrl);
+export function resolveDoiFromUrl(rawUrl: string): string | undefined {
+  const url = safeParseUrl(rawUrl);
+  if (!url) return undefined;
+
+  const arxivId = extractArxivIdOrNull(url);
+  if (arxivId) return arxivDoi(arxivId);
+
   const host = url.hostname.toLowerCase().replace(/^www\./, "");
-  const href = url.href;
 
-  // 1. arXiv: 専用 API があり最も情報が正確なので最優先
-  const arxivId = extractArxivIdOrNull(href);
-  if (arxivId) {
-    return { kind: "arxiv", arxivId };
+  // doi.org / dx.doi.org はパス全体が DOI
+  if (host === "doi.org" || host === "dx.doi.org") {
+    return normalizeDoi(decodeURIComponent(url.pathname.replace(/^\//, "")));
   }
 
-  // 2. IEEE Xplore: URL には DOI ではなく article number しか含まれない
-  if (host === "ieeexplore.ieee.org") {
-    const articleNumber = extractIeeeArticleNumber(url);
-    if (articleNumber) {
-      return { kind: "ieee", articleNumber };
-    }
+  if (host.endsWith("nature.com")) {
+    const slug = url.pathname.match(NATURE_SLUG);
+    if (slug) return normalizeDoi(`10.1038/${slug[1]}`);
   }
 
-  // 3. URL から DOI が直接取れるサイト（doi.org / ACM / Springer / Wiley / Nature ...）
-  const doi = extractDoiFromUrl(url);
-  if (doi) {
-    return { kind: "doi", doi, sourceUrl: href };
+  // クエリに DOI を持つサイト（?doi=...）
+  const fromQuery = url.searchParams.get("doi");
+  if (fromQuery) {
+    const normalized = normalizeDoi(decodeURIComponent(fromQuery));
+    if (normalized) return normalized;
   }
 
-  // 4. それ以外はページの meta タグに賭ける
-  return { kind: "generic", sourceUrl: href };
+  // ACM / Springer / Wiley / Taylor & Francis などはパスに DOI がそのまま入る
+  return normalizeDoi(decodeURIComponent(url.pathname));
 }
 
 /**
- * http(s) URL としてパースする
+ * arXiv ID から DataCite DOI を組み立てる
+ *
+ * arXiv 論文には投稿時に DOI が自動で振られるため、arXiv 公式 API を使わずに
+ * 他の書誌 API から引ける。
  */
-export function parseHttpUrl(rawUrl: string): URL {
-  let url: URL;
-  try {
-    url = new URL(rawUrl.trim());
-  } catch {
-    throw new ValidationError(`Invalid URL: ${rawUrl}`);
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new ValidationError(`Unsupported URL scheme: ${url.protocol}`);
-  }
-  return url;
+export function arxivDoi(arxivId: string): string {
+  return `10.48550/arxiv.${arxivId.toLowerCase()}`;
 }
 
 /**
@@ -91,13 +90,9 @@ export function parseHttpUrl(rawUrl: string): URL {
  *   https://arxiv.org/abs/cs/0112017      (旧形式)
  *   https://doi.org/10.48550/arXiv.2301.12345
  */
-export function extractArxivIdOrNull(rawUrl: string): string | null {
-  let url: URL;
-  try {
-    url = new URL(rawUrl.trim());
-  } catch {
-    return null;
-  }
+export function extractArxivIdOrNull(input: URL | string): string | null {
+  const url = typeof input === "string" ? safeParseUrl(input) : input;
+  if (!url) return null;
 
   const host = url.hostname.toLowerCase().replace(/^www\./, "");
 
@@ -109,31 +104,14 @@ export function extractArxivIdOrNull(rawUrl: string): string | null {
     }
   }
 
-  // arXiv 論文の DOI 形式も arXiv API で引ける
-  const doi = extractDoiFromUrl(url);
-  const arxivDoi = doi?.match(ARXIV_DOI);
-  if (arxivDoi) {
-    return normalizeArxivId(arxivDoi[1]);
+  // 既に arXiv DOI の形で渡された場合も ID に戻す（正規化のため）
+  if (host === "doi.org" || host === "dx.doi.org") {
+    const doi = decodeURIComponent(url.pathname.replace(/^\//, ""));
+    const match = doi.match(/^10\.48550\/arxiv\.(.+)$/i);
+    if (match) return normalizeArxivId(match[1]);
   }
 
   return null;
-}
-
-/**
- * arXiv ID から DataCite DOI を組み立てる
- *
- * arXiv 論文には投稿時に DOI が自動で振られるため、arXiv API が使えない場合の
- * 代替経路（OpenAlex など）のキーとして使える。
- */
-export function arxivDoi(arxivId: string): string {
-  return `10.48550/arxiv.${arxivId.toLowerCase()}`;
-}
-
-/**
- * arXiv ID から abs ページの URL を組み立てる
- */
-export function arxivAbsUrl(arxivId: string): string {
-  return `https://arxiv.org/abs/${arxivId}`;
 }
 
 /**
@@ -151,64 +129,6 @@ function normalizeArxivId(raw: string): string | null {
   if (oldStyle) return oldStyle[1];
 
   return null;
-}
-
-/**
- * IEEE Xplore の article number（arnumber）を取り出す
- *
- * 対応形式:
- *   https://ieeexplore.ieee.org/document/9156697
- *   https://ieeexplore.ieee.org/abstract/document/9156697/
- *   https://ieeexplore.ieee.org/stamp/stamp.jsp?arnumber=9156697
- *   https://ieeexplore.ieee.org/xpl/articleDetails.jsp?arnumber=9156697
- */
-export function extractIeeeArticleNumber(url: URL): string | null {
-  const fromPath = url.pathname.match(/\/document\/(\d+)/);
-  if (fromPath) return fromPath[1];
-
-  const fromQuery = url.searchParams.get("arnumber") ?? url.searchParams.get("articleNumber");
-  if (fromQuery && /^\d+$/.test(fromQuery)) return fromQuery;
-
-  return null;
-}
-
-/**
- * URL から DOI を取り出す。該当しなければ undefined
- */
-export function extractDoiFromUrl(input: URL | string): string | undefined {
-  const url = typeof input === "string" ? safeParseUrl(input) : input;
-  if (!url) return undefined;
-
-  const host = url.hostname.toLowerCase().replace(/^www\./, "");
-
-  // doi.org / dx.doi.org はパス全体が DOI
-  if (host === "doi.org" || host === "dx.doi.org") {
-    return normalizeDoi(decodeURIComponent(url.pathname.replace(/^\//, "")));
-  }
-
-  // Nature 系は記事 slug が DOI 接尾辞と一致する
-  if (host.endsWith("nature.com")) {
-    const slug = url.pathname.match(NATURE_SLUG);
-    if (slug) return normalizeDoi(`10.1038/${slug[1]}`);
-  }
-
-  // ACM / Springer / Wiley / Taylor & Francis などはパスに DOI がそのまま入る。
-  // クエリに DOI を持つサイト（?doi=...）にも対応する
-  const fromQuery = url.searchParams.get("doi");
-  if (fromQuery) {
-    const normalized = normalizeDoi(decodeURIComponent(fromQuery));
-    if (normalized) return normalized;
-  }
-
-  return normalizeDoi(decodeURIComponent(url.pathname));
-}
-
-function safeParseUrl(value: string): URL | null {
-  try {
-    return new URL(value.trim());
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -235,10 +155,25 @@ export function normalizeDoi(value: string | undefined | null): string | undefin
 }
 
 /**
+ * http(s) URL としてパースする
+ */
+export function parseHttpUrl(rawUrl: string): URL {
+  let url: URL;
+  try {
+    url = new URL(rawUrl.trim());
+  } catch {
+    throw new ValidationError(`Invalid URL: ${rawUrl}`);
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new ValidationError(`Unsupported URL scheme: ${url.protocol}`);
+  }
+  return url;
+}
+
+/**
  * 論文 URL として受け付けられるか
  *
- * generic フォールバックがある以上「http(s) URL であればひとまず受ける」が方針。
- * 実際に取得できるかは各プロバイダの応答で判断する。
+ * DOI が取れるかは実際に引いてみるまで分からないので、ここでは形式だけ見る。
  */
 export function validatePaperUrl(url: string): boolean {
   try {
@@ -246,5 +181,13 @@ export function validatePaperUrl(url: string): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+function safeParseUrl(value: string): URL | null {
+  try {
+    return new URL(value.trim());
+  } catch {
+    return null;
   }
 }

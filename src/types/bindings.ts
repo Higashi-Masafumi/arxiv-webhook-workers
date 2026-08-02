@@ -18,13 +18,6 @@ export interface Bindings {
   ARXIV_API_TIMEOUT?: string; // ミリ秒（文字列）
   NOTION_API_TIMEOUT?: string; // ミリ秒（文字列）
 
-  /**
-   * IEEE Xplore Metadata API キー（Secret）
-   * 未設定でも IEEE 論文ページの HTML から取得を試みるが、
-   * bot 対策でブロックされることがあるため設定を推奨
-   * @see https://developer.ieee.org/
-   */
-  IEEE_API_KEY?: string;
 
   /**
    * Crossref / OpenAlex の "polite pool" に載せるための連絡先メールアドレス

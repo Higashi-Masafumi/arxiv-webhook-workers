@@ -1,6 +1,7 @@
 import type { Paper } from "../types/paper";
 import { htmlToText, normalizeText, stripAbstractLabel } from "../utils/html";
 import { normalizeDoi } from "../utils/paperUrl";
+import type { DoiMetadataProvider } from "../services/paperService";
 import { fetchWithRetry } from "./httpClient";
 
 /**
@@ -8,11 +9,12 @@ import { fetchWithRetry } from "./httpClient";
  *
  * IEEE / ACM / Springer / Elsevier / Wiley など、DOI を発行している出版社の
  * 書誌情報を横断的に引ける。abstract は出版社が Crossref に登録している場合のみ
- * 返るため（IEEE は未登録が多い）、取れなければ OpenAlex にフォールバックする。
+ * 返る。OpenAlex に収録されていない DOI を拾うための副取得元。
  *
  * @see https://api.crossref.org/swagger-ui/index.html
  */
-export class CrossrefClient {
+export class CrossrefClient implements DoiMetadataProvider {
+  readonly name = "Crossref";
   private readonly API_BASE_URL = "https://api.crossref.org/works";
 
   /**

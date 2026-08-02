@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  detectPaperUrl,
+  arxivDoi,
   extractArxivIdOrNull,
-  extractDoiFromUrl,
   normalizeDoi,
+  resolveDoiFromUrl,
   validatePaperUrl,
 } from "../src/utils/paperUrl";
-import { ValidationError } from "../src/utils/errors";
 
 describe("extractArxivIdOrNull", () => {
   it.each([
@@ -61,7 +60,7 @@ describe("normalizeDoi", () => {
   );
 });
 
-describe("extractDoiFromUrl", () => {
+describe("resolveDoiFromUrl", () => {
   it.each([
     ["https://doi.org/10.1109/TPAMI.2019.2913372", "10.1109/tpami.2019.2913372"],
     ["https://dx.doi.org/10.1109/TPAMI.2019.2913372", "10.1109/tpami.2019.2913372"],
@@ -80,56 +79,35 @@ describe("extractDoiFromUrl", () => {
     ["https://www.nature.com/articles/nature12373", "10.1038/nature12373"],
     // クエリ文字列に入っている場合
     ["https://example.org/landing?doi=10.1145/3292500.3330701", "10.1145/3292500.3330701"],
+    // arXiv は投稿時の DataCite DOI を URL から組み立てられる
+    ["https://arxiv.org/abs/1706.03762", "10.48550/arxiv.1706.03762"],
+    ["https://arxiv.org/pdf/2301.12345v3.pdf", "10.48550/arxiv.2301.12345"],
+    ["https://arxiv.org/abs/cs/0112017", "10.48550/arxiv.cs/0112017"],
+    ["https://doi.org/10.48550/arXiv.2301.12345", "10.48550/arxiv.2301.12345"],
   ])("extracts DOI from %s", (url, expected) => {
-    expect(extractDoiFromUrl(url)).toBe(expected);
+    expect(resolveDoiFromUrl(url)).toBe(expected);
   });
 
   it.each([
     "https://www.sciencedirect.com/science/article/pii/S0004370221000862",
     "https://openreview.net/forum?id=Bkg6RiCqY7",
     "https://aclanthology.org/N19-1423/",
+    // IEEE の URL には article number しか入っていない（ページを見に行く）
+    "https://ieeexplore.ieee.org/document/9156697",
+    "https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=9156697",
+    "not a url",
   ])("returns undefined for %s", (url) => {
-    expect(extractDoiFromUrl(url)).toBeUndefined();
+    expect(resolveDoiFromUrl(url)).toBeUndefined();
   });
 });
 
-describe("detectPaperUrl", () => {
-  it("routes arXiv URLs to the arXiv API", () => {
-    expect(detectPaperUrl("https://arxiv.org/abs/1706.03762")).toEqual({
-      kind: "arxiv",
-      arxivId: "1706.03762",
-    });
-  });
-
+describe("arxivDoi", () => {
   it.each([
-    ["https://ieeexplore.ieee.org/document/9156697", "9156697"],
-    ["https://ieeexplore.ieee.org/abstract/document/9156697/", "9156697"],
-    ["https://ieeexplore.ieee.org/document/9156697/?arnumber=9156697", "9156697"],
-    ["https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=9156697", "9156697"],
-    ["https://ieeexplore.ieee.org/xpl/articleDetails.jsp?arnumber=9156697", "9156697"],
-  ])("routes IEEE URL %s to the IEEE provider", (url, articleNumber) => {
-    expect(detectPaperUrl(url)).toEqual({ kind: "ieee", articleNumber });
+    ["2301.12345", "10.48550/arxiv.2301.12345"],
+    ["cs/0112017", "10.48550/arxiv.cs/0112017"],
+  ])("builds the DataCite DOI for %s", (arxivId, expected) => {
+    expect(arxivDoi(arxivId)).toBe(expected);
   });
-
-  it("routes DOI-bearing URLs to the DOI provider", () => {
-    expect(detectPaperUrl("https://dl.acm.org/doi/10.1145/3292500.3330701")).toEqual({
-      kind: "doi",
-      doi: "10.1145/3292500.3330701",
-      sourceUrl: "https://dl.acm.org/doi/10.1145/3292500.3330701",
-    });
-  });
-
-  it("falls back to generic scraping when no identifier is present", () => {
-    const url = "https://aclanthology.org/N19-1423/";
-    expect(detectPaperUrl(url)).toEqual({ kind: "generic", sourceUrl: url });
-  });
-
-  it.each(["not a url", "ftp://example.com/paper.pdf", "javascript:alert(1)"])(
-    "rejects %s",
-    (url) => {
-      expect(() => detectPaperUrl(url)).toThrow(ValidationError);
-    }
-  );
 });
 
 describe("validatePaperUrl", () => {

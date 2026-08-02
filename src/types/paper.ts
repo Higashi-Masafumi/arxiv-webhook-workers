@@ -1,17 +1,9 @@
 /**
  * 論文メタデータをどこから取得したか
- * - ieee-api:  IEEE Xplore Metadata API (要 API キー)
- * - ieee-html: IEEE Xplore の HTML ページ埋め込み JSON
- * - crossref:  Crossref REST API
  * - openalex:  OpenAlex API
- * - html-meta: 論文ページの citation_* / Dublin Core meta タグ
+ * - crossref:  Crossref REST API
  */
-export type PaperProvider =
-  | "ieee-api"
-  | "ieee-html"
-  | "crossref"
-  | "openalex"
-  | "html-meta";
+export type PaperProvider = "openalex" | "crossref";
 
 /**
  * 取得元に依存しない論文メタデータ

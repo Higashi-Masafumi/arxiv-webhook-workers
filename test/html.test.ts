@@ -1,44 +1,28 @@
 import { describe, expect, it } from "vitest";
-import {
-  decodeHtmlEntities,
-  htmlToText,
-  normalizeText,
-  stripAbstractLabel,
-  stripTags,
-} from "../src/utils/html";
+import { htmlToText, normalizeText, stripAbstractLabel } from "../src/utils/html";
 
-describe("decodeHtmlEntities", () => {
+describe("htmlToText", () => {
   it("decodes named entities", () => {
-    expect(decodeHtmlEntities("a &amp; b &lt; c &gt; d &quot;e&quot;")).toBe(
-      'a & b < c > d "e"'
-    );
+    expect(htmlToText("a &amp; b &lt; c &gt; d &quot;e&quot;")).toBe('a & b < c > d "e"');
   });
 
   it("decodes decimal and hex numeric references", () => {
-    expect(decodeHtmlEntities("&#8212;&#x2014;&#956;")).toBe("——μ");
+    expect(htmlToText("&#8212;&#x2014;&#956;")).toBe("——μ");
   });
 
   it("leaves unknown entities untouched", () => {
-    expect(decodeHtmlEntities("&notarealentity; &#xZZZZ;")).toBe(
-      "&notarealentity; &#xZZZZ;"
-    );
+    expect(htmlToText("&notarealentity; &#xZZZZ;")).toBe("&notarealentity; &#xZZZZ;");
   });
-});
 
-describe("stripTags", () => {
   it("removes tags", () => {
-    expect(normalizeText(stripTags("<jats:p>Hello <b>world</b></jats:p>"))).toBe(
-      "Hello world"
-    );
+    expect(htmlToText("<jats:p>Hello <b>world</b></jats:p>")).toBe("Hello world");
   });
 
   it("drops script and style contents entirely", () => {
     const html = "<p>keep</p><script>var a = 1;</script><style>.x{color:red}</style>";
-    expect(normalizeText(stripTags(html))).toBe("keep");
+    expect(htmlToText(html)).toBe("keep");
   });
-});
 
-describe("htmlToText", () => {
   it("converts a Crossref JATS abstract to plain text", () => {
     const jats =
       "<jats:title>Abstract</jats:title><jats:p>We study <jats:italic>deep</jats:italic> nets &amp; more.</jats:p>";

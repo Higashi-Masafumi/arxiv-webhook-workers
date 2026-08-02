@@ -1,10 +1,9 @@
 /**
- * HTML / XML 文字列を扱うためのユーティリティ
+ * 書誌 API のレスポンスに含まれるマークアップを落とすためのユーティリティ
  *
- * Cloudflare Workers には BeautifulSoup のような DOM パーサーは無く、
- * 標準では HTMLRewriter（ストリーミング変換）しか使えない。
- * ここで必要なのは <head> の meta タグと JATS 由来のインラインタグの除去だけなので、
- * Workers / Node の双方でそのまま動く純粋関数として実装している。
+ * Crossref のアブストラクトは JATS XML、OpenAlex のタイトルは実体参照混じりで
+ * 返ってくる。ページのスクレイピング用ではなく、あくまで API レスポンスの
+ * 後処理として使う。
  */
 
 /** 名前付き実体参照のうち、論文メタデータで実際に出てくるものだけを扱う */
@@ -34,7 +33,7 @@ const NAMED_ENTITIES: Record<string, string> = {
 /**
  * HTML の実体参照をデコードする（数値参照 + 主要な名前付き参照）
  */
-export function decodeHtmlEntities(text: string): string {
+function decodeHtmlEntities(text: string): string {
   return text.replace(/&(#[xX][0-9a-fA-F]+|#\d+|[a-zA-Z][a-zA-Z0-9]*);/g, (match, body: string) => {
     if (body.startsWith("#")) {
       const isHex = body[1] === "x" || body[1] === "X";
@@ -57,7 +56,7 @@ export function decodeHtmlEntities(text: string): string {
 /**
  * タグを除去する。<script> / <style> の中身は本文ではないので丸ごと捨てる
  */
-export function stripTags(html: string): string {
+function stripTags(html: string): string {
   return html
     .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
     .replace(/<[^>]*>/g, " ");

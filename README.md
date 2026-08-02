@@ -11,7 +11,7 @@ ArXiv に加えて **IEEE Xplore・ACM DL・Springer・Nature・Wiley・ScienceD
 - **データベース**: Cloudflare D1（トークン・設定管理）
 - **KV ストア**: Cloudflare KV（OAuth state 管理）
 - **定期実行**: Cron Triggers（トークンリフレッシュ）
-- **外部 API**: Notion API, OpenAlex API, Crossref API, IEEE Xplore Metadata API（任意）
+- **外部 API**: Notion API, OpenAlex API, Crossref API
 - **言語**: TypeScript
 
 ## セットアップ
@@ -69,12 +69,6 @@ pnpm wrangler secret put NOTION_CLIENT_SECRET
 # Worker URL を wrangler.jsonc の vars.WORKER_URL に設定
 # 例: https://arxiv-webhook-workers.your-subdomain.workers.dev
 
-# （任意）IEEE Xplore Metadata API キー
-# 未設定でも IEEE 論文ページの HTML から取得を試みますが、
-# IEEE 側の bot 対策でブロックされることがあるため設定を推奨します
-# https://developer.ieee.org/ で無料の非商用キーを取得できます
-pnpm wrangler secret put IEEE_API_KEY
-
 # （任意）Crossref / OpenAlex の polite pool 用連絡先メールアドレス
 # 設定するとレート制限が緩和されます（wrangler.jsonc の vars でも可）
 pnpm wrangler secret put CONTACT_EMAIL
@@ -87,7 +81,6 @@ pnpm wrangler secret put CONTACT_EMAIL
 | `NOTION_CLIENT_ID` | ✅ | Notion OAuth Client ID |
 | `NOTION_CLIENT_SECRET` | ✅ | Notion OAuth Client Secret |
 | `WORKER_URL` | ✅ | デプロイ先の Worker URL |
-| `IEEE_API_KEY` | – | IEEE Xplore Metadata API キー。未設定時は HTML フォールバック |
 | `CONTACT_EMAIL` | – | Crossref / OpenAlex の polite pool 用連絡先 |
 
 ### 6. デプロイ
@@ -129,33 +122,38 @@ pnpm wrangler d1 execute arxiv-notion-db --remote --file=./migrations/0002_add_p
 
 ## 対応している論文サイト
 
-URL の形から取得ルートを自動で選び、足りないフィールド（特にアブストラクト）は
-DOI をキーに別のソースで補完します。
+どの論文 URL も **DOI に変換してから書誌 API で引く**という一本道で処理します。
+サイトごとの取得ロジックは持ちません。
 
-| URL の例 | 取得ルート |
+```
+URL --(文字列だけで決まるか)--> DOI --> OpenAlex（無ければ Crossref）--> メタデータ
+     \--(決まらなければページを1回見て DOI を探す)--/
+```
+
+| URL の例 | DOI の求め方 |
 | --- | --- |
-| `arxiv.org/abs/2301.12345`<br>`arxiv.org/pdf/2301.12345v2`<br>`arxiv.org/abs/cs/0112017`（旧形式） | OpenAlex API（arXiv DOI 経由）<br>→ abs ページの citation メタタグ |
-| `ieeexplore.ieee.org/document/9156697`<br>`ieeexplore.ieee.org/stamp/stamp.jsp?arnumber=9156697` | IEEE Xplore Metadata API（`IEEE_API_KEY` 設定時）<br>→ ページ埋め込み JSON → citation メタタグ |
-| `doi.org/10.1145/...`<br>`dl.acm.org/doi/10.1145/...`<br>`link.springer.com/article/10.1007/...`<br>`onlinelibrary.wiley.com/doi/10.1002/...`<br>`nature.com/articles/s41586-...` | Crossref API → OpenAlex API |
-| 上記以外（ScienceDirect / MDPI / ACL Anthology / bioRxiv など） | ページの `citation_*` / Dublin Core メタタグ<br>→ DOI が判明すれば Crossref / OpenAlex で補完 |
+| `doi.org/10.1145/...`<br>`dl.acm.org/doi/10.1145/...`<br>`link.springer.com/article/10.1007/...`<br>`onlinelibrary.wiley.com/doi/10.1002/...` | URL に DOI がそのまま入っている |
+| `arxiv.org/abs/2301.12345`<br>`arxiv.org/pdf/2301.12345v2`<br>`arxiv.org/abs/cs/0112017`（旧形式） | arXiv ID から DataCite DOI を組み立てる<br>(`10.48550/arXiv.2301.12345`) |
+| `nature.com/articles/s41586-...` | 記事 slug が DOI 接尾辞と一致する |
+| 上記以外（IEEE Xplore / ScienceDirect / MDPI / ACL Anthology / bioRxiv など） | ページを 1 回取得して `citation_doi` などから DOI を探す |
 
 ### 設計上の注意
 
-- **サイトごとの HTML スクレイピングはしていません。** 学術サイトの大半は
-  Highwire Press 形式の `citation_*` メタタグを出力しているため、
-  CSS セレクタを出版社ごとに書き分けるより遥かに壊れにくくなります。
+- **サイトごとの取得ロジックは持ちません。** 出版社ごとにタイトル・著者・
+  アブストラクトをスクレイピングすると、出版社の数だけパーサーが増えて壊れやすく
+  なります。DOI さえ分かればあとは書誌 API の仕事なので、ページから読み取るのは
+  **DOI 1 つだけ**に限定しています（`libs/doiFromPage.ts`）。
 - **arXiv 公式 API (export.arxiv.org) は使っていません。** クラウド事業者の IP からの
   自動アクセスをまとめて遮断することがあり、その間 403 が返り続けてリトライでも
   回復しないためです。arXiv 論文には投稿時に DataCite DOI
   (`10.48550/arXiv.xxxx`) が振られるので、それをキーに OpenAlex から引いています。
   OpenAlex は API キー不要・CC0 で、arXiv 以外の出版社もほぼ全て同じ経路でカバーできます。
-- **IEEE Xplore は bot 対策があります。** Cloudflare Workers の IP から
-  HTML を取得すると 403 が返ることがあります。安定運用したい場合は
-  `IEEE_API_KEY` を設定するか、IEEE の URL ではなく DOI の URL
+- **IEEE Xplore は bot 対策があります。** DOI が URL に含まれないためページを
+  取得しますが、Cloudflare Workers の IP からは 403 が返ることがあります。
+  その場合は IEEE の URL ではなく DOI の URL
   （`https://doi.org/10.1109/...`）を Link プロパティに入れてください。
-- **アブストラクトが取れないことがあります。** IEEE は Crossref に
-  アブストラクトを登録していない論文が多いため、OpenAlex にフォールバックします。
-  どちらにも無い場合は要約欄が空のまま更新されます。
+- **アブストラクトが取れないことがあります。** OpenAlex にも Crossref にも
+  アブストラクトが無い論文では、要約欄が空のまま更新されます。
 - **ペイウォールの内側は取得しません。** 取得対象は各サイトが公開している
   書誌メタデータのみです。
 
@@ -206,9 +204,8 @@ pnpm wrangler d1 execute arxiv-notion-db --remote --command="SELECT * FROM integ
 
 - ✅ Notion OAuth 2.0 認証
 - ✅ ワークスペース自動セットアップ（ページ + データベース自動作成）
-- ✅ ArXiv 論文メタデータ自動取得
-- ✅ IEEE Xplore / DOI ベースの論文サイトからのメタデータ自動取得
-- ✅ 取得元をまたいだメタデータ補完（Crossref / OpenAlex）
+- ✅ 論文 URL の DOI 解決（arXiv / DOI ベースの論文サイト / ページからの DOI 抽出）
+- ✅ DOI からのメタデータ取得（OpenAlex → Crossref）
 - ✅ Notion ページ自動更新
 - ✅ トークン自動リフレッシュ（Cron Triggers）
 - ✅ D1 による永続化

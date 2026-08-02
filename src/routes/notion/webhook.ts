@@ -67,7 +67,7 @@ app.post("/", async (c) => {
     }
   }
 
-  // 6. 論文メタデータ取得（ArXiv / IEEE Xplore / DOI / 汎用 HTML）
+  // 6. 論文メタデータ取得（URL -> DOI -> 書誌 API）
   const paperService = new PaperService(c.env);
   const paper = await paperService.fetchPaperByUrl(paperUrl);
 

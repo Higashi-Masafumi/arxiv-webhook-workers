@@ -111,7 +111,6 @@ arxiv-webhook-workers/
 │   │   ├── notionAuthService.ts    # OAuth 認証・トークンリフレッシュロジック
 │   │   ├── notionDatabaseService.ts # DB 検索・作成・更新ロジック
 │   │   ├── paperService.ts         # 論文メタデータ取得のオーケストレーター
-│   │   ├── ieeeService.ts          # IEEE Xplore 連携ロジック
 │   │   ├── integrationService.ts   # D1 Integration 管理ロジック
 │   │   └── tokenRefreshService.ts  # トークンリフレッシュロジック
 │   ├── libs/
@@ -119,6 +118,7 @@ arxiv-webhook-workers/
 │   │   ├── httpClient.ts           # 共通 HTTP クライアント（タイムアウト・リトライ）
 │   │   ├── crossrefClient.ts       # Crossref API クライアント
 │   │   ├── openAlexClient.ts       # OpenAlex API クライアント
+│   │   ├── doiFromPage.ts          # 論文ページから DOI だけを拾う
 │   │   └── d1Client.ts             # D1 クライアントヘルパー
 │   ├── types/
 │   │   ├── notion.ts               # Notion 関連型定義
@@ -130,10 +130,8 @@ arxiv-webhook-workers/
 │   ├── utils/
 │   │   ├── errors.ts               # カスタムエラークラス
 │   │   ├── validation.ts           # 入力検証ユーティリティ
-│   │   ├── paperUrl.ts             # 論文 URL の判定・DOI 抽出
-│   │   ├── citationMeta.ts         # citation_* / Dublin Core メタタグ抽出
-│   │   ├── embeddedJson.ts         # HTML 埋め込み JSON の抽出
-│   │   ├── html.ts                 # HTML / JATS のテキスト化
+│   │   ├── paperUrl.ts             # 論文 URL -> DOI（純粋関数）
+│   │   ├── html.ts                 # API レスポンスのマークアップ除去
 │   │   └── logger.ts               # ロギングユーティリティ
 │   └── middleware/
 │       ├── errorHandler.ts         # エラーハンドリングミドルウェア
@@ -175,8 +173,7 @@ arxiv-webhook-workers/
 
 - `notionAuthService.ts`: OAuth トークン取得・リフレッシュ、state 管理
 - `notionDatabaseService.ts`: DB 検索・作成、ページ更新
-- `paperService.ts`: URL に応じた取得元の選択と、取得元をまたいだメタデータ補完
-- `ieeeService.ts`: IEEE Xplore Metadata API / ページ埋め込み JSON からの取得
+- `paperService.ts`: URL を DOI に変換し、DOI から書誌情報を引く
 - `integrationService.ts`: D1 への Integration 保存・取得・更新
 - `tokenRefreshService.ts`: トークンリフレッシュロジック、有効期限チェック
 
@@ -548,76 +545,56 @@ class NotionDatabaseService {
 
 #### 3.2.3 paperService.ts
 
-論文メタデータ取得のオーケストレーター。URL の形から取得ルートを選び、
-足りないフィールドを DOI をキーに別ソースで補完する。
+論文メタデータ取得。取得元ごとの分岐は持たず、どの論文 URL も
+「DOI に変換 → 書誌 API で引く」という一本道で処理する。
+
+```
+URL --(文字列だけで決まるか)--> DOI --> 書誌 API --> Paper
+     \--(決まらなければページを1回見て DOI を探す)--/
+```
 
 **主要メソッド**:
 
 ```typescript
+/** DOI から書誌情報を引ける取得元。PaperService は中身を知らない */
+interface DoiMetadataProvider {
+  readonly name: string;
+  fetchByDoi(doi: string): Promise<Paper | null>;
+}
+
 class PaperService {
-  constructor(env: Pick<Bindings, "IEEE_API_KEY" | "CONTACT_EMAIL">);
+  constructor(env: Pick<Bindings, "CONTACT_EMAIL">);
 
   // 任意の論文 URL からメタデータ取得
   async fetchPaperByUrl(url: string): Promise<Paper>;
 
-  // DOI から取得（Crossref -> OpenAlex -> ページスクレイピング）
-  private async fetchByDoi(doi: string, sourceUrl: string): Promise<Paper>;
-
-  // citation_* / Dublin Core メタタグから取得
-  private async fetchFromWebPage(sourceUrl: string, knownDoi?: string): Promise<Paper>;
-
-  // 欠けているフィールドを DOI ベースの API で補完
-  private async enrich(paper: Paper): Promise<Paper>;
+  // URL -> DOI（決まらなければページを 1 回取得して探す）
+  private async resolveDoi(url: string): Promise<string>;
 }
 ```
 
-**取得ルートの選択**（`utils/paperUrl.ts` の `detectPaperUrl`）:
+**DOI の求め方**（`utils/paperUrl.ts` の `resolveDoiFromUrl`）:
 
-| 判定 | 取得元 | 補完 |
-| --- | --- | --- |
-| `arxiv.org/...` / arXiv DOI | OpenAlex（arXiv DOI 経由）→ abs ページのメタタグ | 不要 |
-| `ieeexplore.ieee.org/...` | IEEE Xplore Metadata API → ページ埋め込み JSON → メタタグ | Crossref / OpenAlex |
-| URL から DOI 抽出可 | Crossref → OpenAlex | OpenAlex / Crossref |
-| それ以外 | ページの `citation_*` / Dublin Core メタタグ | DOI 判明時のみ Crossref / OpenAlex |
+| URL | DOI の求め方 |
+| --- | --- |
+| `doi.org/...` / ACM / Springer / Wiley など | URL に DOI がそのまま入っている |
+| `arxiv.org/...` / arXiv DOI | arXiv ID から DataCite DOI を組み立てる |
+| `nature.com/articles/...` | 記事 slug が DOI 接尾辞と一致する |
+| それ以外（IEEE Xplore など） | ページを 1 回取得して DOI を探す（`libs/doiFromPage.ts`） |
 
 **設計上の判断**:
 
-- **サイト固有の DOM スクレイピングはしない。** 学術サイトの大半は Highwire Press 形式の
-  `citation_*` メタタグを出すため、出版社ごとに CSS セレクタを書き分けるより壊れにくい。
-  Cloudflare Workers には BeautifulSoup 相当の DOM パーサーが無く、標準の `HTMLRewriter` は
-  ストリーミング変換用でメタタグ抽出には過剰なため、純粋関数のパーサーを自前で持っている
-  （Workers / Node の双方で動くのでユニットテストが書ける）。
-- **IEEE Xplore は bot 対策で 403 を返しうる。** その場合は `IEEE_API_KEY` の設定、
-  もしくは DOI URL の利用を促すエラーメッセージを返す。
-- **補完の失敗は本体の取得結果を捨てない。** Crossref / OpenAlex への問い合わせが
-  失敗しても警告ログのみで、取得済みのフィールドはそのまま Notion に書き込む。
+- **サイトごとの取得ロジックを持たない。** 出版社ごとにタイトル・著者・アブストラクトを
+  スクレイピングすると出版社の数だけパーサーが増える。DOI さえ分かればあとは書誌 API の
+  仕事なので、ページから読み取るのは **DOI 1 つだけ**に限定している。
+- **HTML を触る場所は `libs/doiFromPage.ts` の 1 箇所だけ。** 参考文献リストの DOI を
+  誤って拾わないよう、`citation_doi` → 埋め込み JSON → 本文中の最初の DOI の順に見る。
+- **取得元をまたぐマージはしない。** OpenAlex と Crossref は同じ interface を満たす
+  取得元として順に試し、先に答えた方をそのまま使う。片方が落ちても次に進む。
+- **IEEE Xplore は bot 対策で 403 を返しうる。** その場合は DOI URL の利用を促す
+  エラーメッセージを返す。
 
-#### 3.2.4 ieeeService.ts
-
-**主要メソッド**:
-
-```typescript
-class IeeeService {
-  constructor(apiKey?: string);
-
-  // article number（arnumber）から論文データ取得
-  async fetchByArticleNumber(articleNumber: string): Promise<Paper>;
-}
-
-// ページ埋め込み JSON / メタタグのパース（純粋関数・テスト対象）
-export function parseXploreDocumentHtml(html: string, articleNumber: string): Paper | null;
-export function toPaperFromApi(article: IeeeApiArticle, articleNumber: string): Paper | null;
-```
-
-**処理フロー**:
-
-1. `IEEE_API_KEY` があれば Xplore Metadata API を呼ぶ（`article_number` で検索）
-2. 無い、または失敗した場合は論文ページの HTML を取得
-3. `xplGlobal.document.metadata` の JSON を抽出（波括弧の対応を数えて切り出す）
-4. 取れなければ `citation_*` メタタグにフォールバック
-5. 403 / 401 / 429 の場合は、API キー設定か DOI URL 利用を促すエラーを返す
-
-#### 3.2.5 workspaceConfigService.ts
+#### 3.2.4 workspaceConfigService.ts
 
 **主要メソッド**:
 

@@ -1,18 +1,20 @@
 import type { Paper } from "../types/paper";
 import { htmlToText, normalizeText } from "../utils/html";
 import { normalizeDoi } from "../utils/paperUrl";
+import type { DoiMetadataProvider } from "../services/paperService";
 import { fetchWithRetry } from "./httpClient";
 
 /**
  * OpenAlex API クライアント
  *
- * Crossref に abstract が登録されていない論文（IEEE に多い）の補完に使う。
+ * 主取得元。arXiv から商業出版社まで DOI を持つ文献をひと通り収録している。
  * 著作権上の理由から abstract は「単語 -> 出現位置」の転置インデックスで返るため、
  * 復元処理が必要。
  *
  * @see https://docs.openalex.org/api-entities/works
  */
-export class OpenAlexClient {
+export class OpenAlexClient implements DoiMetadataProvider {
+  readonly name = "OpenAlex";
   private readonly API_BASE_URL = "https://api.openalex.org/works";
 
   /**
