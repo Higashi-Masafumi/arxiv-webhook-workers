@@ -1,6 +1,8 @@
 # ArXiv Webhook Workers
 
-Notion と ArXiv を連携し、ArXiv 論文の URL を Notion データベースに入力すると自動的にメタデータ（タイトル、著者、要約、公開年）を取得・更新する Cloudflare Workers アプリケーション。
+Notion と論文サイトを連携し、論文の URL を Notion データベースに入力すると自動的にメタデータ（タイトル、著者、要約、公開年）を取得・更新する Cloudflare Workers アプリケーション。
+
+ArXiv に加えて **IEEE Xplore・ACM DL・Springer・Nature・Wiley・ScienceDirect などの DOI ベースの論文サイト**にも対応しています。対応範囲と取得の仕組みは [対応している論文サイト](#対応している論文サイト) を参照してください。
 
 ## 技術スタック
 
@@ -9,7 +11,7 @@ Notion と ArXiv を連携し、ArXiv 論文の URL を Notion データベー�
 - **データベース**: Cloudflare D1（トークン・設定管理）
 - **KV ストア**: Cloudflare KV（OAuth state 管理）
 - **定期実行**: Cron Triggers（トークンリフレッシュ）
-- **外部 API**: Notion API, ArXiv API
+- **外部 API**: Notion API, OpenAlex API, DataCite API, Crossref API
 - **言語**: TypeScript
 
 ## セットアップ
@@ -66,7 +68,20 @@ pnpm wrangler secret put NOTION_CLIENT_SECRET
 
 # Worker URL を wrangler.jsonc の vars.WORKER_URL に設定
 # 例: https://arxiv-webhook-workers.your-subdomain.workers.dev
+
+# （任意）Crossref / OpenAlex の polite pool 用連絡先メールアドレス
+# 設定するとレート制限が緩和されます（wrangler.jsonc の vars でも可）
+pnpm wrangler secret put CONTACT_EMAIL
 ```
+
+#### 環境変数一覧
+
+| 変数 | 必須 | 説明 |
+| --- | --- | --- |
+| `NOTION_CLIENT_ID` | ✅ | Notion OAuth Client ID |
+| `NOTION_CLIENT_SECRET` | ✅ | Notion OAuth Client Secret |
+| `WORKER_URL` | ✅ | デプロイ先の Worker URL |
+| `CONTACT_EMAIL` | – | Crossref / OpenAlex の polite pool 用連絡先 |
 
 ### 6. デプロイ
 
@@ -102,8 +117,54 @@ pnpm wrangler d1 execute arxiv-notion-db --remote --file=./migrations/0002_add_p
 ### 3. 論文情報の自動取得
 
 1. データベースに新しいページを作成
-2. Link プロパティに ArXiv URL を入力（例: `https://arxiv.org/abs/2301.12345`）
+2. Link プロパティに論文の URL を入力（例: `https://arxiv.org/abs/2301.12345`、`https://doi.org/10.1109/TPAMI.2019.2913372`）
 3. 数秒後、自動的にタイトル・著者・要約が入力されます
+
+## 対応している論文サイト
+
+どの論文 URL も **DOI に変換してから書誌 API で引く**という一本道で処理します。
+サイトごとの取得ロジックは持ちません。
+
+```
+URL --(文字列だけで決まるか)--> DOI --> OpenAlex -> DataCite -> Crossref --> メタデータ
+     \--(決まらなければページを1回見て DOI を探す)--/
+```
+
+| URL の例 | DOI の求め方 |
+| --- | --- |
+| `doi.org/10.1145/...`<br>`dl.acm.org/doi/10.1145/...`<br>`link.springer.com/article/10.1007/...`<br>`onlinelibrary.wiley.com/doi/10.1002/...` | URL に DOI がそのまま入っている |
+| `arxiv.org/abs/2301.12345`<br>`arxiv.org/pdf/2301.12345v2`<br>`arxiv.org/abs/cs/0112017`（旧形式） | arXiv ID から DataCite DOI を組み立てる<br>(`10.48550/arXiv.2301.12345`) |
+| `nature.com/articles/s41586-...` | 記事 slug が DOI 接尾辞と一致する |
+| 上記以外（ScienceDirect / MDPI / ACL Anthology / bioRxiv など） | ページを 1 回取得して `citation_doi` などから DOI を探す |
+
+### 設計上の注意
+
+- **サイトごとの取得ロジックは持ちません。** 出版社ごとにタイトル・著者・
+  アブストラクトをスクレイピングすると、出版社の数だけパーサーが増えて壊れやすく
+  なります。DOI さえ分かればあとは書誌 API の仕事なので、ページから読み取るのは
+  **DOI 1 つだけ**に限定しています（`libs/doiFromPage.ts`）。
+- **arXiv 公式 API (export.arxiv.org) は使っていません。** クラウド事業者の IP からの
+  自動アクセスをまとめて遮断することがあり、その間 403 が返り続けてリトライでも
+  回復しないためです。arXiv 論文には投稿時に DataCite DOI
+  (`10.48550/arXiv.xxxx`) が振られるので、それをキーに書誌 API から引いています。
+- **取得元は OpenAlex → DataCite → Crossref の順に試します。** OpenAlex は API キー
+  不要・CC0 で広くカバーしますが、**arXiv の DataCite DOI は収録が歯抜け**です
+  （実測で 3 件中 2 件が 404）。arXiv DOI の登録元である DataCite を挟むことで
+  arXiv 論文を確実に取得できます。DataCite と Crossref は排他的な登録機関なので、
+  順序は空振りの回数にしか影響しません。
+- **IEEE Xplore の URL には対応していません。** IEEE の URL には DOI が含まれず、
+  論文ページは bot 対策で HTTP 202 / 418 が返るため読めません（実測で確認）。
+  代わりに **DOI の URL**（`https://doi.org/10.1109/...`）を貼ってください。
+  DOI は IEEE のページ上にテキストで表示されています。DOI さえ分かれば
+  IEEE の論文も他と同じ経路で取得できます。
+- **アブストラクトが取れないことがあります。** OpenAlex にも Crossref にも
+  アブストラクトが無い論文では、要約欄が空のまま更新されます。
+- **取得先は公開ホストに限定しています。** 論文 URL は Notion のプロパティ
+  （＝外部入力）から来るため、そのまま fetch すると Worker が任意の宛先への
+  GET 中継になります。IP リテラル・ドットを含まないホスト名・内部向けの
+  接尾辞は入口で弾き、転送先も 1 ホップずつ同じ基準で検査します。
+- **ペイウォールの内側は取得しません。** 取得対象は各サイトが公開している
+  書誌メタデータのみです。
 
 ## 開発
 
@@ -117,6 +178,16 @@ pnpm dev
 
 ```bash
 pnpm cf-typegen
+```
+
+### テスト・型チェック
+
+```bash
+# パーサー・URL 判定のユニットテスト
+pnpm test
+
+# 型チェック
+pnpm typecheck
 ```
 
 ### D1 データベースの操作
@@ -141,8 +212,9 @@ pnpm wrangler d1 execute arxiv-notion-db --remote --command="SELECT * FROM integ
 ## 機能
 
 - ✅ Notion OAuth 2.0 認証
-- ✅ ArXiv ワークスペース自動セットアップ（ページ + データベース自動作成）
-- ✅ ArXiv 論文メタデータ自動取得
+- ✅ ワークスペース自動セットアップ（ページ + データベース自動作成）
+- ✅ 論文 URL の DOI 解決（arXiv / DOI ベースの論文サイト / ページからの DOI 抽出）
+- ✅ DOI からのメタデータ取得（OpenAlex → DataCite → Crossref）
 - ✅ Notion ページ自動更新
 - ✅ トークン自動リフレッシュ（Cron Triggers）
 - ✅ D1 による永続化

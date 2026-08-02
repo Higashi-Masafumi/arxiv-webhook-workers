@@ -17,6 +17,13 @@ export interface Bindings {
   LOG_LEVEL?: "debug" | "info" | "warn" | "error";
   ARXIV_API_TIMEOUT?: string; // ミリ秒（文字列）
   NOTION_API_TIMEOUT?: string; // ミリ秒（文字列）
+
+
+  /**
+   * Crossref / OpenAlex の "polite pool" に載せるための連絡先メールアドレス
+   * 設定するとレート制限が緩和され、障害時に連絡が来る
+   */
+  CONTACT_EMAIL?: string;
 }
 
 /**

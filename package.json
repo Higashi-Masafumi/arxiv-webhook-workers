@@ -4,7 +4,10 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy --minify",
-    "cf-typegen": "wrangler types --env-interface CloudflareBindings"
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@notionhq/client": "^5.4.0",
@@ -12,6 +15,8 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20251121.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10",
     "wrangler": "^4.4.0"
   }
 }

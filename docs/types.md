@@ -17,7 +17,7 @@
    - 1.2 KV データ構造（簡素化）
    - 1.3 D1 データ構造
 2. [Notion API 関連型](#2-notion-api-関連型)
-3. [ArXiv API 関連型](#3-arxiv-api-関連型)
+3. [論文メタデータ関連型](#3-論文メタデータ関連型)
 4. [Webhook 関連型](#4-webhook-関連型)
 5. [サービス層インターフェース](#5-サービス層インターフェース)
    - 5.1 Notion Auth Service
@@ -354,93 +354,44 @@ export interface SplitRichTextOptions {
 
 ---
 
-## 3. ArXiv API 関連型
+## 3. 論文メタデータ関連型
 
-### 3.1 ArXiv データ型
+### 3.1 論文データ型（取得元非依存）
 
-**ファイル**: `src/types/arxiv.ts`
+**ファイル**: `src/types/paper.ts`
 
 ```typescript
 /**
- * ArXiv 論文データ（内部表現）
+ * 論文メタデータをどこから取得したか
  */
-export interface ArxivPaper {
+export type PaperProvider =
+  | "ieee-api"  // IEEE Xplore Metadata API
+  | "ieee-html" // IEEE Xplore のページ埋め込み JSON
+  | "crossref"  // Crossref REST API
+  | "openalex"  // OpenAlex API
+  | "html-meta"; // citation_* / Dublin Core メタタグ
+
+/**
+ * 取得元に依存しない論文メタデータ（内部表現）
+ */
+export interface Paper {
   title: string;
-  authors: string[]; // 著者名の配列
-  summary: string;
-  link: string; // ArXiv URL
-  publishedYear: number; // 4桁の年
-}
-
-/**
- * ArXiv API レスポンス（Atom XML パース後）
- */
-export interface ArxivApiResponse {
-  feed: {
-    entry?: ArxivEntry | ArxivEntry[];
-    totalResults?: number;
-    startIndex?: number;
-    itemsPerPage?: number;
-  };
-}
-
-/**
- * ArXiv Entry（単一論文）
- */
-export interface ArxivEntry {
-  id: string; // URL形式: http://arxiv.org/abs/2301.12345v1
-  updated: string; // ISO 8601
-  published: string; // ISO 8601
-  title: string;
-  summary: string;
-  author: ArxivAuthor | ArxivAuthor[];
-  link?: ArxivLink | ArxivLink[];
-  "arxiv:primary_category"?: {
-    "@_term": string;
-    "@_scheme": string;
-  };
-  category?: ArxivCategory | ArxivCategory[];
-}
-
-/**
- * ArXiv 著者
- */
-export interface ArxivAuthor {
-  name: string;
-  "arxiv:affiliation"?: string;
-}
-
-/**
- * ArXiv リンク
- */
-export interface ArxivLink {
-  "@_href": string;
-  "@_rel"?: string;
-  "@_type"?: string;
-  "@_title"?: string;
-}
-
-/**
- * ArXiv カテゴリ
- */
-export interface ArxivCategory {
-  "@_term": string;
-  "@_scheme": string;
-}
-
-/**
- * ArXiv ID 抽出結果
- */
-export interface ArxivIdExtractionResult {
-  id: string; // 例: "2301.12345"
-  version?: string; // 例: "v1"
-  url: string; // 元の URL
+  authors: string[]; // 著者名の配列（取得できない場合は空配列）
+  summary: string; // アブストラクト（取得できない場合は空文字列）
+  link: string; // Notion の Link プロパティに書き戻す正規 URL
+  publishedYear: number | null; // 4桁の年（取得できない場合は null）
+  doi?: string; // 小文字に正規化した DOI。補完時の検索キーにも使う
+  provider: PaperProvider;
 }
 ```
 
+`summary` / `authors` / `publishedYear` は取得元によっては欠けうるため、
+`paperService` が DOI をキーに Crossref / OpenAlex で補完を試みる。
+それでも埋まらない場合は空のまま Notion に書き込まれる。
+
 ### 3.2 ArXiv URL パターン
 
-**ファイル**: `src/types/arxiv.ts`
+**ファイル**: `src/utils/paperUrl.ts`
 
 ```typescript
 /**
@@ -614,7 +565,7 @@ export interface NotionAuthServiceOptions {
 ```typescript
 import type { Bindings } from "./bindings";
 import type { DatabaseObjectResponse, PageObjectResponse } from "./notion";
-import type { ArxivPaper } from "./arxiv";
+import type { Paper } from "./paper";
 
 /**
  * Notion データベースサービスインターフェース
@@ -635,7 +586,7 @@ export interface INotionDatabaseService {
   updatePage(
     accessToken: string,
     pageId: string,
-    paper: ArxivPaper
+    paper: Paper
   ): Promise<PageObjectResponse>;
 }
 
@@ -648,44 +599,7 @@ export interface NotionDatabaseServiceOptions {
 }
 ```
 
-### 5.3 ArXiv Service
-
-**ファイル**: `src/types/services.ts`
-
-```typescript
-import type { ArxivPaper, ArxivIdExtractionResult } from "./arxiv";
-
-/**
- * ArXiv サービスインターフェース
- */
-export interface IArxivService {
-  /**
-   * URL から論文データを取得
-   */
-  fetchPaperByUrl(url: string): Promise<ArxivPaper>;
-
-  /**
-   * ArXiv ID から論文データを取得
-   */
-  fetchPaperById(arxivId: string): Promise<ArxivPaper>;
-
-  /**
-   * URL から ArXiv ID を抽出
-   */
-  extractArxivId(url: string): ArxivIdExtractionResult | null;
-}
-
-/**
- * ArXiv Service 実装クラスのコンストラクタ引数
- */
-export interface ArxivServiceOptions {
-  apiTimeout?: number; // ミリ秒（デフォルト: 10000）
-  maxRetries?: number; // 最大リトライ回数（デフォルト: 3）
-  baseDelay?: number; // リトライ間隔（ミリ秒、デフォルト: 1000）
-}
-```
-
-### 5.4 Workspace Config Service
+### 5.3 Workspace Config Service
 
 **ファイル**: `src/types/services.ts`
 
@@ -739,7 +653,7 @@ export interface IntegrationServiceOptions {
 }
 ```
 
-### 5.5 Token Refresh Service
+### 5.4 Token Refresh Service
 
 **ファイル**: `src/types/services.ts`
 
@@ -1029,17 +943,6 @@ export class NotionApiError extends AppError {
 }
 
 /**
- * ArXiv API エラー (502)
- */
-export class ArxivApiError extends AppError {
-  constructor(message: string, public readonly originalError?: any) {
-    super(message, "ARXIV_API_ERROR", 502, {
-      originalError: originalError?.message,
-    });
-  }
-}
-
-/**
  * 内部エラー (500)
  */
 export class InternalError extends AppError {
@@ -1099,7 +1002,7 @@ export interface ErrorResponse {
 
 ```typescript
 import type { NotionAutomationPayload } from "./webhook";
-import type { ArxivPaper } from "./arxiv";
+import type { Paper } from "./paper";
 import type { WorkspaceConfig } from "./kv";
 
 /**
@@ -1124,7 +1027,7 @@ export function isNotionAutomationPayload(
 /**
  * ArXiv Paper の型ガード
  */
-export function isArxivPaper(value: unknown): value is ArxivPaper {
+export function isPaper(value: unknown): value is Paper {
   if (typeof value !== "object" || value === null) {
     return false;
   }
@@ -1379,7 +1282,7 @@ import type {
   PageObjectResponse,
   NotionPageProperties,
 } from "../types/notion";
-import type { ArxivPaper } from "../types/arxiv";
+import type { Paper } from "../types/paper";
 import { NotionApiError } from "../types/errors";
 
 export class NotionDatabaseService implements INotionDatabaseService {
@@ -1429,7 +1332,7 @@ export class NotionDatabaseService implements INotionDatabaseService {
   async updatePage(
     accessToken: string,
     pageId: string,
-    paper: ArxivPaper
+    paper: Paper
   ): Promise<PageObjectResponse> {
     const client = new Client({
       auth: accessToken,
