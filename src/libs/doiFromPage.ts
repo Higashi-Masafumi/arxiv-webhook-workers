@@ -1,4 +1,4 @@
-import { normalizeDoi, parsePublicHttpUrl } from "../utils/paperUrl";
+import { findDoiInText, normalizeDoi, parsePublicHttpUrl } from "../utils/paperUrl";
 import { fetchWithRetry, readTextCapped } from "./httpClient";
 
 /**
@@ -40,8 +40,8 @@ const DOI_SOURCES: Array<(html: string) => string | undefined> = [
       ?.match(/content=["']([^"']+)["']/i)?.[1],
   // ページに埋め込まれた JSON（IEEE Xplore の xplGlobal など）
   (html) => html.match(/"doi"\s*:\s*"(10\.[^"]+)"/i)?.[1],
-  // 最後の手段として本文中の最初の DOI（normalizeDoi が先頭一致で拾う）
-  (html) => html,
+  // 最後の手段として本文中の最初の DOI
+  (html) => findDoiInText(html),
 ];
 
 /** 出版社サイトは http -> https や正規 URL への転送を挟むので、数回は追う */

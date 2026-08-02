@@ -60,19 +60,21 @@ export async function fetchWithRetry(url: string, options: FetchOptions = {}): P
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
-async function fetchWithTimeout(
+/**
+ * タイムアウト付きで fetch する
+ *
+ * 期限はヘッダ受信までではなく **本文を読み終えるまで** 効かせる必要がある。
+ * ヘッダだけ即返して本文を細切れに送ってくる相手がいるため、レスポンス取得時点で
+ * 解除してしまうと後続の `json()` / `readTextCapped()` が待ち続けうる。
+ * `AbortSignal.timeout` はレスポンス本文にも効き、手動で解除する必要もない。
+ */
+function fetchWithTimeout(
   url: string,
   timeoutMs: number,
   headers: Record<string, string> | undefined,
   redirect: "follow" | "manual" | "error"
 ): Promise<Response> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { headers, signal: controller.signal, redirect });
-  } finally {
-    clearTimeout(timeoutId);
-  }
+  return fetch(url, { headers, signal: AbortSignal.timeout(timeoutMs), redirect });
 }
 
 function isRetryableStatus(status: number): boolean {

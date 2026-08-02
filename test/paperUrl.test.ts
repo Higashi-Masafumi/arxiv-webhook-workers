@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { normalizeDoi, parsePublicHttpUrl, resolveDoiFromUrl } from "../src/utils/paperUrl";
+import {
+  findDoiInText,
+  normalizeDoi,
+  parsePublicHttpUrl,
+  resolveDoiFromUrl,
+} from "../src/utils/paperUrl";
 
 describe("resolveDoiFromUrl: arXiv", () => {
   it.each([
@@ -33,19 +38,36 @@ describe("normalizeDoi", () => {
     ["DOI: 10.1145/3292500.3330701", "10.1145/3292500.3330701"],
     ["https://doi.org/10.1038/s41586-021-03819-2", "10.1038/s41586-021-03819-2"],
     ["info:doi/10.1007/s11263-019-01228-7", "10.1007/s11263-019-01228-7"],
-    // 文末の句読点は DOI の一部ではない
-    ["see 10.1145/3292500.3330701.", "10.1145/3292500.3330701"],
-    ["/doi/10.1145/3292500.3330701/", "10.1145/3292500.3330701"],
+    ["10.1145/3292500.3330701/", "10.1145/3292500.3330701"],
+    // 接尾辞の記号は DOI の一部なので削らない
+    [
+      "10.1002/(SICI)1099-0844(199912)17:4<290::AID-CBF849>3.0.CO;2-P",
+      "10.1002/(sici)1099-0844(199912)17:4<290::aid-cbf849>3.0.co;2-p",
+    ],
   ])("normalizes %s", (input, expected) => {
     expect(normalizeDoi(input)).toBe(expected);
   });
 
-  it.each([undefined, null, "", "no doi here", "10.1/short"])(
+  it.each([undefined, null, "", "no doi here", "10.1/short", "see 10.1145/3292500.3330701"])(
     "returns undefined for %s",
     (input) => {
       expect(normalizeDoi(input)).toBeUndefined();
     }
   );
+});
+
+describe("findDoiInText", () => {
+  it.each([
+    ["see 10.1145/3292500.3330701.", "10.1145/3292500.3330701"],
+    ["(10.1145/3292500.3330701)", "10.1145/3292500.3330701"],
+    ["<a href=\"https://doi.org/10.1038/nature12373\">", "10.1038/nature12373"],
+  ])("finds the DOI in %s", (input, expected) => {
+    expect(findDoiInText(input)).toBe(expected);
+  });
+
+  it("returns undefined when there is no DOI", () => {
+    expect(findDoiInText("nothing here")).toBeUndefined();
+  });
 });
 
 describe("resolveDoiFromUrl", () => {
@@ -67,6 +89,11 @@ describe("resolveDoiFromUrl", () => {
     ["https://www.nature.com/articles/nature12373", "10.1038/nature12373"],
     // クエリ文字列に入っている場合
     ["https://example.org/landing?doi=10.1145/3292500.3330701", "10.1145/3292500.3330701"],
+    // 接尾辞に括弧・コロン・山括弧を含む旧 Wiley の DOI（SICI 形式）
+    [
+      "https://onlinelibrary.wiley.com/doi/10.1002/(SICI)1099-0844(199912)17:4%3C290::AID-CBF849%3E3.0.CO;2-P",
+      "10.1002/(sici)1099-0844(199912)17:4<290::aid-cbf849>3.0.co;2-p",
+    ],
   ])("extracts DOI from %s", (url, expected) => {
     expect(resolveDoiFromUrl(url)).toBe(expected);
   });
