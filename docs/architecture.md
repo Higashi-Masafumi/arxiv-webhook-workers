@@ -597,6 +597,11 @@ class PaperService {
   レスポンスの読み方だけを実装する（`DoiMetadataClient<TResponse>`）。
 - **IEEE Xplore は bot 対策で 403 を返しうる。** その場合は DOI URL の利用を促す
   エラーメッセージを返す。
+- **取得先は公開ホストに限定する（SSRF 対策）。** 論文 URL は外部入力なので、
+  `utils/paperUrl.ts` の `parsePublicHttpUrl` で IP リテラル・ドットを含まない
+  ホスト名・内部向け接尾辞を弾く。難読化された IP 表記は URL パーサーが正規化
+  するため、正規化後のホスト名だけを見れば足りる。転送は自動追従させず、
+  `redirect: "manual"` で 1 ホップずつ同じ検査を通す。
 
 #### 3.2.4 workspaceConfigService.ts
 

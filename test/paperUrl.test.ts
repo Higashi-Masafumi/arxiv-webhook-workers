@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeDoi, resolveDoiFromUrl } from "../src/utils/paperUrl";
+import { normalizeDoi, parsePublicHttpUrl, resolveDoiFromUrl } from "../src/utils/paperUrl";
 
 describe("resolveDoiFromUrl: arXiv", () => {
   it.each([
@@ -81,5 +81,44 @@ describe("resolveDoiFromUrl", () => {
     "not a url",
   ])("returns undefined for %s", (url) => {
     expect(resolveDoiFromUrl(url)).toBeUndefined();
+  });
+});
+
+describe("parsePublicHttpUrl", () => {
+  it.each([
+    "https://arxiv.org/abs/1706.03762",
+    "http://dl.acm.org/doi/10.1145/3292500.3330701",
+    "https://ieeexplore.ieee.org/document/9156697",
+  ])("accepts the public paper URL %s", (url) => {
+    expect(parsePublicHttpUrl(url).toString()).toBe(new URL(url).toString());
+  });
+
+  it.each([
+    // ループバック・リンクローカル・プライベートアドレス
+    ["loopback", "http://127.0.0.1/paper"],
+    ["all-zeros", "http://0.0.0.0/paper"],
+    ["link-local (cloud metadata)", "http://169.254.169.254/latest/meta-data/"],
+    ["private class A", "http://10.0.0.1/paper"],
+    ["private class B", "http://172.16.0.1/paper"],
+    ["private class C", "http://192.168.0.1/paper"],
+    // 難読化された表記も URL パーサーが正規化するので同じ扱いになる
+    ["decimal-encoded loopback", "http://2130706433/paper"],
+    ["hex-encoded loopback", "http://0x7f.1/paper"],
+    ["octal-encoded address", "http://010.0.0.1/paper"],
+    // IPv6
+    ["IPv6 loopback", "http://[::1]/paper"],
+    ["IPv6 unique local", "http://[fd00::1]/paper"],
+    ["IPv4-mapped IPv6", "http://[::ffff:127.0.0.1]/paper"],
+    // ドットを含まない / 内部向けの名前
+    ["localhost", "http://localhost/paper"],
+    ["bare hostname", "http://intranet/paper"],
+    ["mDNS name", "http://printer.local/paper"],
+    ["internal suffix", "https://wiki.internal/paper"],
+    // http(s) 以外
+    ["file scheme", "file:///etc/passwd"],
+    ["data scheme", "data:text/html,<meta name=citation_doi content=10.1/x>"],
+    ["not a URL", "just some text"],
+  ])("rejects %s", (_label, url) => {
+    expect(() => parsePublicHttpUrl(url)).toThrow();
   });
 });

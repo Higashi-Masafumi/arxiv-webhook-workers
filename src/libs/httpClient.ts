@@ -13,6 +13,8 @@ interface FetchOptions {
   /** Retry-After が無い場合の指数バックオフ基準値（ミリ秒） */
   baseRetryDelayMs?: number;
   headers?: Record<string, string>;
+  /** 既定は follow。転送先を検査したい場合は manual にして呼び出し側で追う */
+  redirect?: "follow" | "manual" | "error";
 }
 
 const DEFAULT_TIMEOUT_MS = 10000;
@@ -33,13 +35,14 @@ export async function fetchWithRetry(url: string, options: FetchOptions = {}): P
     maxRetries = DEFAULT_MAX_RETRIES,
     baseRetryDelayMs = DEFAULT_BASE_RETRY_DELAY_MS,
     headers,
+    redirect = "follow",
   } = options;
 
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const response = await fetchWithTimeout(url, timeoutMs, headers);
+      const response = await fetchWithTimeout(url, timeoutMs, headers, redirect);
 
       if (isRetryableStatus(response.status) && attempt < maxRetries) {
         await sleep(retryDelayMs(response, baseRetryDelayMs, attempt));
@@ -60,12 +63,13 @@ export async function fetchWithRetry(url: string, options: FetchOptions = {}): P
 async function fetchWithTimeout(
   url: string,
   timeoutMs: number,
-  headers?: Record<string, string>
+  headers: Record<string, string> | undefined,
+  redirect: "follow" | "manual" | "error"
 ): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { headers, signal: controller.signal, redirect: "follow" });
+    return await fetch(url, { headers, signal: controller.signal, redirect });
   } finally {
     clearTimeout(timeoutId);
   }

@@ -1,4 +1,4 @@
-import { normalizeDoi } from "../utils/paperUrl";
+import { normalizeDoi, parsePublicHttpUrl } from "../utils/paperUrl";
 import { fetchWithRetry, readTextCapped } from "./httpClient";
 
 /**
@@ -44,25 +44,48 @@ const DOI_SOURCES: Array<(html: string) => string | undefined> = [
   (html) => html,
 ];
 
+/** 出版社サイトは http -> https や正規 URL への転送を挟むので、数回は追う */
+const MAX_REDIRECTS = 5;
+
 /**
- * ページを 1 回取得して DOI を探す。見つからなければ undefined
+ * ページを取得して DOI を探す。見つからなければ undefined
  *
- * @throws {Error} ページ取得自体に失敗した場合（403 の bot 対策など）
+ * 転送先も外部入力と同じ扱いなので、自動追従させず 1 ホップずつ検査する。
+ * そうしないと「公開ページ -> 内部アドレス」の転送で入口の検査を回避できてしまう。
+ *
+ * @throws {Error} 取得先として認められない / ページ取得に失敗した場合
  */
 export async function fetchDoiFromPage(pageUrl: string): Promise<string | undefined> {
-  const response = await fetchWithRetry(pageUrl, {
-    timeoutMs: TIMEOUT_MS,
-    headers: { ...BROWSER_HEADERS },
-  });
+  let target = parsePublicHttpUrl(pageUrl);
 
-  if (!response.ok) {
-    throw new Error(
-      `${pageUrl} returned ${response.status}` +
-        (response.status === 403 ? " (the publisher is blocking automated access)" : "")
-    );
+  for (let hop = 0; ; hop++) {
+    const response = await fetchWithRetry(target.toString(), {
+      timeoutMs: TIMEOUT_MS,
+      headers: { ...BROWSER_HEADERS },
+      redirect: "manual",
+    });
+
+    const location = isRedirect(response.status) ? response.headers.get("location") : null;
+    if (!location) {
+      if (!response.ok) {
+        throw new Error(
+          `${target} returned ${response.status}` +
+            (response.status === 403 ? " (the publisher is blocking automated access)" : "")
+        );
+      }
+      return findDoi(await readTextCapped(response, MAX_HTML_BYTES));
+    }
+
+    if (hop >= MAX_REDIRECTS) {
+      throw new Error(`Too many redirects while fetching ${pageUrl}`);
+    }
+    // 相対 Location を解決したうえで、転送先も同じ基準で検査する
+    target = parsePublicHttpUrl(new URL(location, target).toString());
   }
+}
 
-  return findDoi(await readTextCapped(response, MAX_HTML_BYTES));
+function isRedirect(status: number): boolean {
+  return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
 }
 
 /**

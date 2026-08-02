@@ -1,5 +1,5 @@
 /**
- * 論文 URL から DOI を求める（純粋関数）
+ * 論文 URL の解釈（純粋関数）
  *
  * このアプリは「どの論文 URL も DOI に変換し、DOI から書誌情報を引く」という
  * 一本道で動く。取得元ごとの分岐を持たないための唯一の共通キーが DOI。
@@ -138,4 +138,61 @@ function safeParseUrl(value: string): URL | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * 内部ネットワーク向けと分かるホスト名の接尾辞
+ * @see https://www.rfc-editor.org/rfc/rfc6761
+ */
+const INTERNAL_SUFFIXES = [".local", ".localhost", ".internal", ".home.arpa", ".test", ".invalid"];
+
+/**
+ * 取得しに行ってよい URL としてパースする
+ *
+ * 論文 URL は Notion のプロパティから来る、つまり外部入力なので、
+ * そのまま fetch すると Worker が任意の宛先への GET 中継になってしまう。
+ * 公開 Web 上の論文ページ以外は入口で弾く。
+ *
+ * 判定はホスト名の形だけで行う:
+ *
+ *   - **IP リテラルは一律拒否**。ループバック・リンクローカル・プライベート
+ *     アドレスを個別に列挙する代わりにこうしている。論文ページが生の IP で
+ *     配信されることはないので、これで実用上困らない。
+ *     `http://2130706433/` のような難読化表記も URL パーサーが
+ *     `127.0.0.1` に正規化するため、正規化後のホスト名を見れば足りる。
+ *   - **ドットを含まないホスト名も拒否**（`localhost` / `intranet` など）
+ *   - **内部向けの接尾辞**も拒否
+ *
+ * DNS リバインディング（公開名が内部アドレスに解決される）はこの層では
+ * 防げないが、Workers の fetch はプライベートアドレスへ到達できないため
+ * ここでは考慮しない。
+ *
+ * @throws {Error} 取得先として認められない URL の場合
+ */
+export function parsePublicHttpUrl(rawUrl: string): URL {
+  const url = safeParseUrl(rawUrl);
+  if (!url) {
+    throw new Error(`Not a valid URL: ${rawUrl}`);
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(`Unsupported URL scheme: ${url.protocol}`);
+  }
+
+  const host = url.hostname.toLowerCase();
+
+  // URL パーサーは IPv6 をブラケット付きで返す
+  if (host.startsWith("[")) {
+    throw new Error(`Refusing to fetch an IP address: ${url.hostname}`);
+  }
+  if (/^\d+(\.\d+)*$/.test(host)) {
+    throw new Error(`Refusing to fetch an IP address: ${url.hostname}`);
+  }
+  if (!host.includes(".")) {
+    throw new Error(`Refusing to fetch a non-public host: ${url.hostname}`);
+  }
+  if (INTERNAL_SUFFIXES.some((suffix) => host.endsWith(suffix))) {
+    throw new Error(`Refusing to fetch an internal host: ${url.hostname}`);
+  }
+
+  return url;
 }

@@ -4,6 +4,7 @@ import type {
   NotionAutomationPayload,
   WebhookResponse,
 } from "../../types/webhook";
+import { parsePublicHttpUrl } from "../../utils/paperUrl";
 import { IntegrationService } from "../../services/integrationService";
 import { TokenRefreshService } from "../../services/tokenRefreshService";
 import { PaperService } from "../../services/paperService";
@@ -38,9 +39,15 @@ app.post("/", async (c) => {
   }
 
   // 3. 論文 URL のバリデーション
-  // 取得できるかは PaperService が判断するため、ここでは形式のみ確認する
-  if (!/^https?:\/\//i.test(paperUrl)) {
-    throw new ValidationError("Link property is not a valid http(s) URL");
+  // 取得できるかは PaperService が判断する。ここでは「取得しに行ってよい宛先か」だけ見る
+  try {
+    parsePublicHttpUrl(paperUrl);
+  } catch (error) {
+    throw new ValidationError(
+      `Link property is not a fetchable paper URL: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
   }
 
   // 4. Integration を database_id から取得
