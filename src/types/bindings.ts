@@ -20,17 +20,6 @@ export interface Bindings {
 
 
   /**
-   * IEEE Xplore Metadata API キー（任意）
-   *
-   * IEEE の URL には DOI が無く論文ページも bot 対策で読めないため、
-   * これがある場合のみ article number から DOI を引ける。
-   * 未設定でも DOI の URL を貼れば取得できる。
-   * キーは登録・審査のうえ発行される。
-   * @see https://developer.ieee.org/
-   */
-  IEEE_API_KEY?: string;
-
-  /**
    * Crossref / OpenAlex の "polite pool" に載せるための連絡先メールアドレス
    * 設定するとレート制限が緩和され、障害時に連絡が来る
    */
