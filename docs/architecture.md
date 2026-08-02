@@ -121,6 +121,7 @@ arxiv-webhook-workers/
 │   │   ├── dataCiteClient.ts       # DataCite API クライアント（arXiv など）
 │   │   ├── openAlexClient.ts       # OpenAlex API クライアント
 │   │   ├── doiFromPage.ts          # 論文ページから DOI だけを拾う
+│   │   ├── ieeeDoiResolver.ts      # IEEE の article number -> DOI（公式 API）
 │   │   └── d1Client.ts             # D1 クライアントヘルパー
 │   ├── types/
 │   │   ├── notion.ts               # Notion 関連型定義
@@ -581,7 +582,8 @@ class PaperService {
 | `doi.org/...` / ACM / Springer / Wiley など | URL に DOI がそのまま入っている |
 | `arxiv.org/...` / arXiv DOI | arXiv ID から DataCite DOI を組み立てる |
 | `nature.com/articles/...` | 記事 slug が DOI 接尾辞と一致する |
-| それ以外（IEEE Xplore など） | ページを 1 回取得して DOI を探す（`libs/doiFromPage.ts`） |
+| `ieeexplore.ieee.org/...` | 公式 Metadata API で article number から引く（`libs/ieeeDoiResolver.ts`、`IEEE_API_KEY` 設定時） |
+| それ以外 | ページを 1 回取得して DOI を探す（`libs/doiFromPage.ts`） |
 
 **設計上の判断**:
 
@@ -600,8 +602,11 @@ class PaperService {
   「DOI で 1 件引く / 404 は null / polite pool 用に連絡先を名乗る / レスポンスの
   マークアップを落とす」を持ち、派生クラスはエンドポイントの組み立てと
   レスポンスの読み方だけを実装する（`DoiMetadataClient<TResponse>`）。
-- **IEEE Xplore は bot 対策で 403 を返しうる。** その場合は DOI URL の利用を促す
-  エラーメッセージを返す。
+- **IEEE Xplore はページを読めない。** bot 対策で HTTP 202 / 418 が返るため
+  （実測で確認）、公式 Metadata API だけが article number から DOI を辿れる経路。
+  そこで取るのも DOI だけなので「URL -> DOI -> 書誌 API」の流れは変わらない。
+  キー未設定・キー不正の場合は警告を残してページ取得に進み、最終的に DOI URL の
+  利用を促すエラーを返す。
 - **取得先は公開ホストに限定する（SSRF 対策）。** 論文 URL は外部入力なので、
   `utils/paperUrl.ts` の `parsePublicHttpUrl` で IP リテラル・ドットを含まない
   ホスト名・内部向け接尾辞を弾く。難読化された IP 表記は URL パーサーが正規化

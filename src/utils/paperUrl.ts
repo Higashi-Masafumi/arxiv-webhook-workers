@@ -130,6 +130,30 @@ function normalizeArxivId(raw: string): string | null {
 }
 
 /**
+ * IEEE Xplore の article number を取り出す。該当しなければ null
+ *
+ * IEEE の URL には DOI が入っておらず、ページも bot 対策で読めないため、
+ * この番号を公式 API に渡して DOI を引く（`libs/ieeeDoiResolver.ts`）。
+ *
+ * 対応形式:
+ *   https://ieeexplore.ieee.org/document/9156697
+ *   https://ieeexplore.ieee.org/abstract/document/9156697/
+ *   https://ieeexplore.ieee.org/stamp/stamp.jsp?arnumber=9156697
+ *   https://ieeexplore.ieee.org/xpl/articleDetails.jsp?arnumber=9156697
+ */
+export function extractIeeeArticleNumber(rawUrl: string): string | null {
+  const url = safeParseUrl(rawUrl);
+  if (!url) return null;
+  if (url.hostname.toLowerCase().replace(/^www\./, "") !== "ieeexplore.ieee.org") return null;
+
+  const fromPath = url.pathname.match(/\/document\/(\d+)/);
+  if (fromPath) return fromPath[1];
+
+  const fromQuery = url.searchParams.get("arnumber") ?? url.searchParams.get("articleNumber");
+  return fromQuery && /^\d+$/.test(fromQuery) ? fromQuery : null;
+}
+
+/**
  * 文字列全体が DOI であるとみなして正規化する
  *
  * URL のパスや API レスポンスの DOI フィールドのように、DOI 以外が混ざらない

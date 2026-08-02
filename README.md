@@ -11,7 +11,7 @@ ArXiv に加えて **IEEE Xplore・ACM DL・Springer・Nature・Wiley・ScienceD
 - **データベース**: Cloudflare D1（トークン・設定管理）
 - **KV ストア**: Cloudflare KV（OAuth state 管理）
 - **定期実行**: Cron Triggers（トークンリフレッシュ）
-- **外部 API**: Notion API, OpenAlex API, DataCite API, Crossref API
+- **外部 API**: Notion API, OpenAlex API, DataCite API, Crossref API, IEEE Xplore Metadata API（任意）
 - **言語**: TypeScript
 
 ## セットアップ
@@ -69,6 +69,12 @@ pnpm wrangler secret put NOTION_CLIENT_SECRET
 # Worker URL を wrangler.jsonc の vars.WORKER_URL に設定
 # 例: https://arxiv-webhook-workers.your-subdomain.workers.dev
 
+# （任意）IEEE Xplore Metadata API キー
+# ieeexplore.ieee.org の URL から DOI を引くのに使います
+# https://developer.ieee.org/ で非商用の無料キーを取得できます
+# 未設定でも DOI の URL を貼れば IEEE 論文を取得できます
+pnpm wrangler secret put IEEE_API_KEY
+
 # （任意）Crossref / OpenAlex の polite pool 用連絡先メールアドレス
 # 設定するとレート制限が緩和されます（wrangler.jsonc の vars でも可）
 pnpm wrangler secret put CONTACT_EMAIL
@@ -81,6 +87,7 @@ pnpm wrangler secret put CONTACT_EMAIL
 | `NOTION_CLIENT_ID` | ✅ | Notion OAuth Client ID |
 | `NOTION_CLIENT_SECRET` | ✅ | Notion OAuth Client Secret |
 | `WORKER_URL` | ✅ | デプロイ先の Worker URL |
+| `IEEE_API_KEY` | – | IEEE Xplore Metadata API キー。`ieeexplore.ieee.org` の URL に必要 |
 | `CONTACT_EMAIL` | – | Crossref / OpenAlex の polite pool 用連絡先 |
 
 ### 6. デプロイ
@@ -135,7 +142,8 @@ URL --(文字列だけで決まるか)--> DOI --> OpenAlex -> DataCite -> Crossr
 | `doi.org/10.1145/...`<br>`dl.acm.org/doi/10.1145/...`<br>`link.springer.com/article/10.1007/...`<br>`onlinelibrary.wiley.com/doi/10.1002/...` | URL に DOI がそのまま入っている |
 | `arxiv.org/abs/2301.12345`<br>`arxiv.org/pdf/2301.12345v2`<br>`arxiv.org/abs/cs/0112017`（旧形式） | arXiv ID から DataCite DOI を組み立てる<br>(`10.48550/arXiv.2301.12345`) |
 | `nature.com/articles/s41586-...` | 記事 slug が DOI 接尾辞と一致する |
-| 上記以外（IEEE Xplore / ScienceDirect / MDPI / ACL Anthology / bioRxiv など） | ページを 1 回取得して `citation_doi` などから DOI を探す |
+| `ieeexplore.ieee.org/document/...` | IEEE Xplore Metadata API で article number から引く（`IEEE_API_KEY` 設定時） |
+| 上記以外（ScienceDirect / MDPI / ACL Anthology / bioRxiv など） | ページを 1 回取得して `citation_doi` などから DOI を探す |
 
 ### 設計上の注意
 
@@ -152,10 +160,12 @@ URL --(文字列だけで決まるか)--> DOI --> OpenAlex -> DataCite -> Crossr
   （実測で 3 件中 2 件が 404）。arXiv DOI の登録元である DataCite を挟むことで
   arXiv 論文を確実に取得できます。DataCite と Crossref は排他的な登録機関なので、
   順序は空振りの回数にしか影響しません。
-- **IEEE Xplore は bot 対策があります。** DOI が URL に含まれないためページを
-  取得しますが、Cloudflare Workers の IP からは 403 が返ることがあります。
-  その場合は IEEE の URL ではなく DOI の URL
-  （`https://doi.org/10.1109/...`）を Link プロパティに入れてください。
+- **IEEE Xplore の URL には `IEEE_API_KEY` が必要です。** IEEE の URL には DOI が
+  含まれず、論文ページは bot 対策で HTTP 202 / 418 が返るため読めません
+  （実測で確認）。公式の Metadata API だけが article number から DOI を辿れる
+  経路なので、キーがある場合のみ利用します。キーで取るのも **DOI だけ**で、
+  書誌情報は他と同じく DOI から引きます。未設定の場合は DOI の URL
+  （`https://doi.org/10.1109/...`）を貼ってください。
 - **アブストラクトが取れないことがあります。** OpenAlex にも Crossref にも
   アブストラクトが無い論文では、要約欄が空のまま更新されます。
 - **取得先は公開ホストに限定しています。** 論文 URL は Notion のプロパティ

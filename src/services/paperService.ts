@@ -1,5 +1,6 @@
 import { CrossrefClient } from "../libs/crossrefClient";
 import { DataCiteClient } from "../libs/dataCiteClient";
+import { IeeeDoiResolver } from "../libs/ieeeDoiResolver";
 import { fetchDoiFromPage } from "../libs/doiFromPage";
 import { OpenAlexClient } from "../libs/openAlexClient";
 import type { Bindings } from "../types/bindings";
@@ -22,8 +23,11 @@ import { resolveDoiFromUrl } from "../utils/paperUrl";
  */
 export class PaperService {
   private readonly providers: DoiMetadataProvider[];
+  private readonly ieeeDoiResolver: IeeeDoiResolver;
 
-  constructor(env: Pick<Bindings, "CONTACT_EMAIL">) {
+  constructor(env: Pick<Bindings, "CONTACT_EMAIL" | "IEEE_API_KEY">) {
+    this.ieeeDoiResolver = new IeeeDoiResolver(env.IEEE_API_KEY);
+
     // 先に答えた取得元をそのまま使う（取得元をまたぐマージはしない）。
     //
     // DataCite を Crossref より先に置いているのは、この 2 つが排他的な登録機関で
@@ -58,11 +62,16 @@ export class PaperService {
   /**
    * URL を DOI に変換する
    *
-   * 文字列だけで決まらない場合に限りページを 1 回取得する。
+   * 文字列だけで決まらない場合に限り、外に問い合わせる。
    */
   private async resolveDoi(url: string): Promise<string> {
     const fromUrl = resolveDoiFromUrl(url);
     if (fromUrl) return fromUrl;
+
+    // IEEE は URL に DOI が無く、ページも bot 対策で読めないため公式 API に頼る。
+    // キー未設定なら undefined が返り、下のページ取得に進む（そこで案内を出す）
+    const fromIeee = await this.tryResolveIeeeDoi(url);
+    if (fromIeee) return fromIeee;
 
     let fromPage: string | undefined;
     try {
@@ -82,6 +91,21 @@ export class PaperService {
       );
     }
     return fromPage;
+  }
+
+  /**
+   * IEEE の DOI 解決は補助的な経路なので、失敗しても止めずにページ取得へ進む
+   * （キーが無効な場合などは警告だけ残す）
+   */
+  private async tryResolveIeeeDoi(url: string): Promise<string | undefined> {
+    try {
+      return await this.ieeeDoiResolver.resolveDoi(url);
+    } catch (error) {
+      console.warn(
+        `[Paper] IEEE DOI lookup failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return undefined;
+    }
   }
 
   /**

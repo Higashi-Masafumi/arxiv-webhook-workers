@@ -41,7 +41,8 @@ describe("PaperService", () => {
     return calls;
   }
 
-  const service = () => new PaperService({ CONTACT_EMAIL: undefined });
+  const service = (env: { IEEE_API_KEY?: string } = {}) =>
+    new PaperService({ CONTACT_EMAIL: undefined, ...env });
 
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -158,6 +159,35 @@ describe("PaperService", () => {
     await expect(service().fetchPaperByUrl("https://example.org/paper")).rejects.toThrow(
       UnsupportedPaperUrlError
     );
+  });
+
+  it("uses the IEEE API to resolve the DOI when a key is configured", async () => {
+    const calls = stubFetch([
+      ["ieeexploreapi.ieee.org", () => Response.json({ articles: [{ doi: "10.1109/x.1" }] })],
+      ["api.openalex.org", () => Response.json({ title: "An IEEE Paper", publication_year: 2020 })],
+    ]);
+
+    const paper = await service({ IEEE_API_KEY: "secret" }).fetchPaperByUrl(
+      "https://ieeexplore.ieee.org/document/9156697"
+    );
+
+    expect(paper).toMatchObject({ title: "An IEEE Paper", provider: "openalex" });
+    // 論文ページは取りに行かない
+    expect(calls.some((url) => url.startsWith("https://ieeexplore.ieee.org/"))).toBe(false);
+  });
+
+  it("falls back to reading the page when the IEEE key is rejected", async () => {
+    stubFetch([
+      ["ieeexploreapi.ieee.org", () => new Response("Developer Inactive", { status: 403 })],
+      ["ieeexplore.ieee.org/document", () => new Response(IEEE_PAGE, { status: 200 })],
+      ["api.openalex.org", () => Response.json(OPENALEX_WORK)],
+    ]);
+
+    const paper = await service({ IEEE_API_KEY: "bad" }).fetchPaperByUrl(
+      "https://ieeexplore.ieee.org/document/9156697"
+    );
+
+    expect(paper.title).toBe("Attention Is All You Need");
   });
 
   it("suggests the DOI URL when the publisher blocks the page fetch", async () => {
