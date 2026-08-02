@@ -1,6 +1,5 @@
 /**
  * 論文メタデータをどこから取得したか
- * - arxiv:     ArXiv API (export.arxiv.org)
  * - ieee-api:  IEEE Xplore Metadata API (要 API キー)
  * - ieee-html: IEEE Xplore の HTML ページ埋め込み JSON
  * - crossref:  Crossref REST API
@@ -8,7 +7,6 @@
  * - html-meta: 論文ページの citation_* / Dublin Core meta タグ
  */
 export type PaperProvider =
-  | "arxiv"
   | "ieee-api"
   | "ieee-html"
   | "crossref"

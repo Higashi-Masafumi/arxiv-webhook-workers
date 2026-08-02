@@ -11,7 +11,7 @@ ArXiv に加えて **IEEE Xplore・ACM DL・Springer・Nature・Wiley・ScienceD
 - **データベース**: Cloudflare D1（トークン・設定管理）
 - **KV ストア**: Cloudflare KV（OAuth state 管理）
 - **定期実行**: Cron Triggers（トークンリフレッシュ）
-- **外部 API**: Notion API, ArXiv API, Crossref API, OpenAlex API, IEEE Xplore Metadata API（任意）
+- **外部 API**: Notion API, OpenAlex API, Crossref API, IEEE Xplore Metadata API（任意）
 - **言語**: TypeScript
 
 ## セットアップ
@@ -134,7 +134,7 @@ DOI をキーに別のソースで補完します。
 
 | URL の例 | 取得ルート |
 | --- | --- |
-| `arxiv.org/abs/2301.12345`<br>`arxiv.org/pdf/2301.12345v2`<br>`arxiv.org/abs/cs/0112017`（旧形式） | ArXiv API |
+| `arxiv.org/abs/2301.12345`<br>`arxiv.org/pdf/2301.12345v2`<br>`arxiv.org/abs/cs/0112017`（旧形式） | OpenAlex API（arXiv DOI 経由）<br>→ abs ページの citation メタタグ |
 | `ieeexplore.ieee.org/document/9156697`<br>`ieeexplore.ieee.org/stamp/stamp.jsp?arnumber=9156697` | IEEE Xplore Metadata API（`IEEE_API_KEY` 設定時）<br>→ ページ埋め込み JSON → citation メタタグ |
 | `doi.org/10.1145/...`<br>`dl.acm.org/doi/10.1145/...`<br>`link.springer.com/article/10.1007/...`<br>`onlinelibrary.wiley.com/doi/10.1002/...`<br>`nature.com/articles/s41586-...` | Crossref API → OpenAlex API |
 | 上記以外（ScienceDirect / MDPI / ACL Anthology / bioRxiv など） | ページの `citation_*` / Dublin Core メタタグ<br>→ DOI が判明すれば Crossref / OpenAlex で補完 |
@@ -144,6 +144,11 @@ DOI をキーに別のソースで補完します。
 - **サイトごとの HTML スクレイピングはしていません。** 学術サイトの大半は
   Highwire Press 形式の `citation_*` メタタグを出力しているため、
   CSS セレクタを出版社ごとに書き分けるより遥かに壊れにくくなります。
+- **arXiv 公式 API (export.arxiv.org) は使っていません。** クラウド事業者の IP からの
+  自動アクセスをまとめて遮断することがあり、その間 403 が返り続けてリトライでも
+  回復しないためです。arXiv 論文には投稿時に DataCite DOI
+  (`10.48550/arXiv.xxxx`) が振られるので、それをキーに OpenAlex から引いています。
+  OpenAlex は API キー不要・CC0 で、arXiv 以外の出版社もほぼ全て同じ経路でカバーできます。
 - **IEEE Xplore は bot 対策があります。** Cloudflare Workers の IP から
   HTML を取得すると 403 が返ることがあります。安定運用したい場合は
   `IEEE_API_KEY` を設定するか、IEEE の URL ではなく DOI の URL

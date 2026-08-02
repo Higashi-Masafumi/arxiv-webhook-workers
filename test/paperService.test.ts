@@ -75,10 +75,10 @@ describe("mergePapers", () => {
 });
 
 /**
- * arXiv API が 403 を返す状況（クラウド IP からの自動アクセス遮断）で、
- * 代替経路に落ちられることを確認する
+ * arXiv 論文は arXiv DOI をキーに OpenAlex から引く
+ * （arXiv 公式 API は Workers の IP を遮断するため使わない）
  */
-describe("PaperService: arXiv fallback when the API is blocked", () => {
+describe("PaperService: arXiv papers are fetched through OpenAlex", () => {
   const ARXIV_URL = "https://arxiv.org/abs/1706.03762";
   const ABS_URL = "https://arxiv.org/abs/1706.03762";
   const DOI = "10.48550/arxiv.1706.03762";
@@ -115,11 +115,8 @@ describe("PaperService: arXiv fallback when the API is blocked", () => {
     vi.unstubAllGlobals();
   });
 
-  it("falls back to OpenAlex via the arXiv DOI, keeping the arXiv link", async () => {
-    stubFetch([
-      ["export.arxiv.org", () => new Response("blocked", { status: 403 })],
-      ["api.openalex.org", () => Response.json(OPENALEX_WORK)],
-    ]);
+  it("resolves the arXiv DOI through OpenAlex and keeps the arXiv link", async () => {
+    stubFetch([["api.openalex.org", () => Response.json(OPENALEX_WORK)]]);
 
     const paper = await service().fetchPaperByUrl(ARXIV_URL);
 
@@ -134,9 +131,22 @@ describe("PaperService: arXiv fallback when the API is blocked", () => {
     });
   });
 
-  it("falls back to the abs page when OpenAlex has no record either", async () => {
+  it("never calls the arXiv API", async () => {
+    const seen: string[] = [];
+    vi.stubGlobal("fetch", async (input: string | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      seen.push(url);
+      if (url.includes("api.openalex.org")) return Response.json(OPENALEX_WORK);
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    await service().fetchPaperByUrl(ARXIV_URL);
+
+    expect(seen.some((url) => url.includes("export.arxiv.org"))).toBe(false);
+  });
+
+  it("falls back to the abs page when OpenAlex has no record yet", async () => {
     stubFetch([
-      ["export.arxiv.org", () => new Response("blocked", { status: 403 })],
       ["api.openalex.org", () => new Response("not found", { status: 404 })],
       ["arxiv.org/abs/", () => new Response(ABS_PAGE_HTML, { status: 200 })],
     ]);
@@ -153,29 +163,23 @@ describe("PaperService: arXiv fallback when the API is blocked", () => {
     });
   });
 
-  it("reports that arXiv is blocking access when every route fails", async () => {
+  it("reports both attempted routes when every route fails", async () => {
     stubFetch([
-      ["export.arxiv.org", () => new Response("blocked", { status: 403 })],
       ["api.openalex.org", () => new Response("not found", { status: 404 })],
       ["arxiv.org/abs/", () => new Response("blocked", { status: 403 })],
     ]);
 
     await expect(service().fetchPaperByUrl(ARXIV_URL)).rejects.toThrow(PaperFetchError);
-    await expect(service().fetchPaperByUrl(ARXIV_URL)).rejects.toThrow(/blocking automated access/);
+    await expect(service().fetchPaperByUrl(ARXIV_URL)).rejects.toThrow(
+      /OpenAlex or https:\/\/arxiv\.org\/abs\//
+    );
   });
 
-  it("still prefers the arXiv API when it is reachable", async () => {
-    const feed = `<feed><entry>
-      <id>http://arxiv.org/abs/1706.03762v7</id>
-      <published>2017-06-12T17:57:34Z</published>
-      <title>Attention Is All You Need</title>
-      <summary>The dominant sequence transduction models.</summary>
-      <author><name>Ashish Vaswani</name></author>
-    </entry></feed>`;
-    stubFetch([["export.arxiv.org", () => new Response(feed, { status: 200 })]]);
+  it("resolves an arXiv DOI URL through the same route", async () => {
+    stubFetch([["api.openalex.org", () => Response.json(OPENALEX_WORK)]]);
 
-    const paper = await service().fetchPaperByUrl(ARXIV_URL);
+    const paper = await service().fetchPaperByUrl(`https://doi.org/${DOI}`);
 
-    expect(paper.provider).toBe("arxiv");
+    expect(paper).toMatchObject({ link: ABS_URL, doi: DOI, provider: "openalex" });
   });
 });

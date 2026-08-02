@@ -58,16 +58,7 @@ export class NotionApiError extends AppError {
 }
 
 /**
- * ArXiv API エラー
- */
-export class ArxivApiError extends AppError {
-  constructor(message: string, statusCode: number = 502) {
-    super(message, statusCode, "ARXIV_API_ERROR");
-  }
-}
-
-/**
- * 論文メタデータの取得に失敗した（ArXiv 以外の取得元）
+ * 論文メタデータの取得に失敗した
  */
 export class PaperFetchError extends AppError {
   constructor(message: string, statusCode: number = 502) {

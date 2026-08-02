@@ -111,7 +111,6 @@ arxiv-webhook-workers/
 │   │   ├── notionAuthService.ts    # OAuth 認証・トークンリフレッシュロジック
 │   │   ├── notionDatabaseService.ts # DB 検索・作成・更新ロジック
 │   │   ├── paperService.ts         # 論文メタデータ取得のオーケストレーター
-│   │   ├── arxivService.ts         # ArXiv API 連携ロジック
 │   │   ├── ieeeService.ts          # IEEE Xplore 連携ロジック
 │   │   ├── integrationService.ts   # D1 Integration 管理ロジック
 │   │   └── tokenRefreshService.ts  # トークンリフレッシュロジック
@@ -177,7 +176,6 @@ arxiv-webhook-workers/
 - `notionAuthService.ts`: OAuth トークン取得・リフレッシュ、state 管理
 - `notionDatabaseService.ts`: DB 検索・作成、ページ更新
 - `paperService.ts`: URL に応じた取得元の選択と、取得元をまたいだメタデータ補完
-- `arxivService.ts`: ArXiv API 呼び出し、データ変換
 - `ieeeService.ts`: IEEE Xplore Metadata API / ページ埋め込み JSON からの取得
 - `integrationService.ts`: D1 への Integration 保存・取得・更新
 - `tokenRefreshService.ts`: トークンリフレッシュロジック、有効期限チェック
@@ -350,10 +348,10 @@ import { Hono } from "hono";
 import type { Bindings } from "../types/bindings";
 import type { WebhookPayload } from "../types/webhook";
 import { IntegrationService } from "../services/integrationService";
-import { ArxivService } from "../services/arxivService";
+import { PaperService } from "../services/paperService";
 import { NotionDatabaseService } from "../services/notionDatabaseService";
 import { TokenRefreshService } from "../services/tokenRefreshService";
-import { validateArxivUrl } from "../utils/validation";
+import { validatePaperUrl } from "../utils/paperUrl";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -365,8 +363,8 @@ app.post("/notion/webhook", async (c) => {
     return c.json({ error: "Invalid payload" }, 400);
   }
 
-  if (!validateArxivUrl(payload.link)) {
-    return c.json({ error: "Invalid ArXiv URL" }, 400);
+  if (!validatePaperUrl(payload.link)) {
+    return c.json({ error: "Invalid paper URL" }, 400);
   }
 
   // 2. Integration 取得
@@ -389,9 +387,9 @@ app.post("/notion/webhook", async (c) => {
     );
   }
 
-  // 4. ArXiv データ取得
-  const arxivService = new ArxivService();
-  const paper = await arxivService.fetchPaperByUrl(payload.link);
+  // 4. 論文メタデータ取得
+  const paperService = new PaperService(c.env);
+  const paper = await paperService.fetchPaperByUrl(payload.link);
 
   // 5. Notion 更新
   const dbService = new NotionDatabaseService(c.env);
@@ -411,7 +409,7 @@ export default app;
 
 - `IntegrationService`: D1 から Integration 取得
 - `TokenRefreshService`: トークン有効期限チェック・リフレッシュ
-- `ArxivService`: 論文データ取得
+- `PaperService`: 論文メタデータ取得
 - `NotionDatabaseService`: ページ更新
 
 **変更点**:
@@ -534,7 +532,7 @@ class NotionDatabaseService {
   async updatePage(
     accessToken: string,
     pageId: string,
-    paper: ArxivPaper
+    paper: Paper
   ): Promise<void>;
 
   // Rich Text 分割（2000文字制限対応）
@@ -577,7 +575,7 @@ class PaperService {
 
 | 判定 | 取得元 | 補完 |
 | --- | --- | --- |
-| `arxiv.org/...` / arXiv DOI | ArXiv API | 不要（abstract が必ず返る） |
+| `arxiv.org/...` / arXiv DOI | OpenAlex（arXiv DOI 経由）→ abs ページのメタタグ | 不要 |
 | `ieeexplore.ieee.org/...` | IEEE Xplore Metadata API → ページ埋め込み JSON → メタタグ | Crossref / OpenAlex |
 | URL から DOI 抽出可 | Crossref → OpenAlex | OpenAlex / Crossref |
 | それ以外 | ページの `citation_*` / Dublin Core メタタグ | DOI 判明時のみ Crossref / OpenAlex |
@@ -594,31 +592,7 @@ class PaperService {
 - **補完の失敗は本体の取得結果を捨てない。** Crossref / OpenAlex への問い合わせが
   失敗しても警告ログのみで、取得済みのフィールドはそのまま Notion に書き込む。
 
-#### 3.2.4 arxivService.ts
-
-**主要メソッド**:
-
-```typescript
-class ArxivService {
-  // URL から論文データ取得
-  async fetchPaperByUrl(url: string): Promise<Paper>;
-
-  // ArXiv API 呼び出し
-  async fetchPaperById(arxivId: string): Promise<Paper>;
-}
-
-// Atom XML パース（純粋関数・テスト対象）
-export function parseArxivXml(xml: string, arxivId?: string): Paper;
-```
-
-**処理フロー**:
-
-1. URL から ArXiv ID を抽出（`utils/paperUrl.ts`。新形式 `2301.12345` / 旧形式 `cs/0112017` 両対応）
-2. ArXiv API に HTTP リクエスト（429 / 5xx は指数バックオフでリトライ）
-3. Atom XML をパース
-4. `Paper` 型に変換
-
-#### 3.2.5 ieeeService.ts
+#### 3.2.4 ieeeService.ts
 
 **主要メソッド**:
 
@@ -643,7 +617,7 @@ export function toPaperFromApi(article: IeeeApiArticle, articleNumber: string): 
 4. 取れなければ `citation_*` メタタグにフォールバック
 5. 403 / 401 / 429 の場合は、API キー設定か DOI URL 利用を促すエラーを返す
 
-#### 3.2.6 workspaceConfigService.ts
+#### 3.2.5 workspaceConfigService.ts
 
 **主要メソッド**:
 
@@ -734,13 +708,13 @@ export class ArxivClient {
       });
 
       if (!response.ok) {
-        throw new ArxivApiError(`HTTP ${response.status}`, response.statusText);
+        throw new PaperFetchError(`HTTP ${response.status}`);
       }
 
       return await response.text();
     } catch (error) {
       if (error.name === "AbortError") {
-        throw new ArxivApiError("Request timeout", error);
+        throw new PaperFetchError("Request timeout");
       }
       throw error;
     } finally {
@@ -752,7 +726,7 @@ export class ArxivClient {
 
 **責務**:
 
-- ArXiv API への HTTP リクエスト
+- 外部 API / 論文ページへの HTTP リクエスト
 - タイムアウト処理
 - エラーハンドリング
 
@@ -802,13 +776,13 @@ export class ArxivClient {
    ↓
 5. Workers: KV から config 取得
    ↓
-6. Workers: ArXiv ID 抽出
+6. Workers: URL から取得ルートを判定（arXiv / IEEE / DOI / それ以外）
    ↓
-7. Workers → GET http://export.arxiv.org/api/query?id_list=xxx
+7. Workers → GET https://api.openalex.org/works/doi:10.48550/arxiv.xxx
    ↓
-8. ArXiv API → Atom XML
+8. OpenAlex → JSON
    ↓
-9. Workers: XML パース → ArxivPaper 型に変換
+9. Workers: Paper 型に変換（欠けたフィールドは Crossref / OpenAlex で補完）
    ↓
 10. Workers → PATCH https://api.notion.com/v1/pages/{page_id}
     Body: { properties: { Title, Authors, Summary, ... } }
@@ -827,7 +801,7 @@ Middleware: errorHandler でキャッチ
   ↓
 エラーの種類を判定
   ├─ NotionApiError → 500 or 502
-  ├─ ArxivApiError → 502
+  ├─ PaperFetchError → 502
   ├─ ValidationError → 400
   └─ その他 → 500
   ↓
@@ -993,7 +967,7 @@ AppError (アプリケーション基底エラー)
   ├─ ForbiddenError (403)
   ├─ NotFoundError (404)
   ├─ NotionApiError (500/502)
-  ├─ ArxivApiError (502)
+  ├─ PaperFetchError (502)
   └─ InternalError (500)
 ```
 
@@ -1054,7 +1028,7 @@ export function errorHandler() {
 
 #### 7.3.1 リトライ対象
 
-- ArXiv API の 503 エラー
+- 論文メタデータ API（OpenAlex / Crossref / IEEE）の 429 / 5xx エラー
 - Notion API の 429 エラー（レート制限）
 - ネットワークタイムアウト
 
@@ -1091,7 +1065,7 @@ async function retryWithBackoff<T>(
 }
 
 function isRetryableError(error: any): boolean {
-  if (error instanceof ArxivApiError) {
+  if (error instanceof PaperFetchError) {
     return error.statusCode === 503;
   }
   if (error instanceof NotionApiError) {
@@ -1270,7 +1244,8 @@ Cloudflare Workers は自動的にバージョン管理されるため、
 - [Notion API Documentation](https://developers.notion.com/)
 - [Notion Refresh Token API](https://developers.notion.com/reference/refresh-a-token)
 - [@notionhq/client SDK](https://github.com/makenotion/notion-sdk-js)
-- [ArXiv API Documentation](https://info.arxiv.org/help/api/index.html)
+- [OpenAlex API Documentation](https://docs.openalex.org/api-entities/works)
+- [Crossref REST API](https://api.crossref.org/swagger-ui/index.html)
 
 ### 12.2 関連ドキュメント
 

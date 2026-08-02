@@ -3,7 +3,6 @@ import { fetchWithRetry, readTextCapped } from "../libs/httpClient";
 import { OpenAlexClient } from "../libs/openAlexClient";
 import type { Bindings } from "../types/bindings";
 import type { Paper } from "../types/paper";
-import { ArxivService } from "./arxivService";
 import { IeeeService } from "./ieeeService";
 import { parseCitationMeta } from "../utils/citationMeta";
 import { PaperFetchError, UnsupportedPaperUrlError } from "../utils/errors";
@@ -19,20 +18,18 @@ const MAX_HTML_BYTES = 1_000_000;
  * 別ソースで補完する。
  *
  * ```
- * arxiv.org/abs/...          -> ArXiv API -> (遮断時) OpenAlex -> abs ページ
+ * arxiv.org/abs/...          -> OpenAlex (arXiv DOI 経由) -> abs ページ
  * ieeexplore.ieee.org/...    -> IEEE Xplore Metadata API / ページ埋め込み JSON
  * URL から DOI が取れる       -> Crossref -> (abstract 欠落時) OpenAlex
  * それ以外                    -> ページの citation_* meta タグ -> (DOI があれば) Crossref/OpenAlex
  * ```
  */
 export class PaperService {
-  private readonly arxivService: ArxivService;
   private readonly ieeeService: IeeeService;
   private readonly crossrefClient: CrossrefClient;
   private readonly openAlexClient: OpenAlexClient;
 
   constructor(env: Pick<Bindings, "IEEE_API_KEY" | "CONTACT_EMAIL">) {
-    this.arxivService = new ArxivService();
     this.ieeeService = new IeeeService(env.IEEE_API_KEY);
     this.crossrefClient = new CrossrefClient(env.CONTACT_EMAIL);
     this.openAlexClient = new OpenAlexClient(env.CONTACT_EMAIL);
@@ -60,23 +57,16 @@ export class PaperService {
   }
 
   /**
-   * arXiv から取得する。API が使えない場合は DOI 経由 / abs ページに退避する
+   * arXiv 論文を OpenAlex から取得する
    *
-   * arXiv API はクラウド事業者の IP からの自動アクセスをまとめて遮断することがあり、
-   * その間 Workers からは 403 が返り続ける。arXiv 論文には DataCite DOI
-   * (`10.48550/arXiv.xxxx`) が振られているので、遮断中も OpenAlex からほぼ同じ
-   * 書誌情報を取り直せる。
+   * arXiv 公式 API (export.arxiv.org) は使わない。クラウド事業者の IP からの
+   * 自動アクセスをまとめて遮断することがあり、その間 403 が返り続けて
+   * リトライでも回復しないため。arXiv 論文には投稿時に DataCite DOI
+   * (`10.48550/arXiv.xxxx`) が振られるので、それをキーに OpenAlex から引く。
    */
   private async fetchArxiv(arxivId: string): Promise<Paper> {
-    // ArXiv API は abstract も必ず返すので、成功した場合は補完不要
-    const fromApi = await this.tryFetch("ArXiv", () =>
-      this.arxivService.fetchPaperById(arxivId)
-    );
-    if (fromApi) return fromApi;
-
     const doi = arxivDoi(arxivId);
     const absUrl = arxivAbsUrl(arxivId);
-    console.warn(`[Paper] ArXiv API unavailable for ${arxivId}, falling back to ${doi}`);
 
     // arXiv DOI は DataCite 登録で Crossref には無いため、OpenAlex を直接引く
     const openAlex = await this.tryFetch("OpenAlex", () => this.openAlexClient.fetchByDoi(doi));
@@ -85,12 +75,13 @@ export class PaperService {
       return { ...openAlex, link: absUrl };
     }
 
+    // OpenAlex への収録は投稿から数日遅れることがあるので、abs ページに退避する
+    console.warn(`[Paper] No OpenAlex record for ${doi}, falling back to ${absUrl}`);
     try {
       return await this.fetchFromWebPage(absUrl, doi);
     } catch (error) {
       throw new PaperFetchError(
-        `Could not fetch arXiv:${arxivId} from the arXiv API, OpenAlex, or ${absUrl}. ` +
-          `arXiv may be blocking automated access right now — retry later. ` +
+        `Could not fetch arXiv:${arxivId} from OpenAlex or ${absUrl}. ` +
           `(last error: ${error instanceof Error ? error.message : String(error)})`
       );
     }
