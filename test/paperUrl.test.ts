@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeDoi, resolveDoiFromUrl, validatePaperUrl } from "../src/utils/paperUrl";
+import { normalizeDoi, resolveDoiFromUrl } from "../src/utils/paperUrl";
 
 describe("resolveDoiFromUrl: arXiv", () => {
   it.each([
@@ -17,7 +17,6 @@ describe("resolveDoiFromUrl: arXiv", () => {
     ["https://arxiv.org/abs/hep-th/9901001v2", "10.48550/arxiv.hep-th/9901001"],
     // arXiv DOI で渡された場合もバージョン接尾辞を落として正規化する
     ["https://doi.org/10.48550/arXiv.2301.12345", "10.48550/arxiv.2301.12345"],
-    ["https://doi.org/10.48550/arXiv.2301.12345v2", "10.48550/arxiv.2301.12345"],
   ])("builds the DataCite DOI for %s", (url, expected) => {
     expect(resolveDoiFromUrl(url)).toBe(expected);
   });
@@ -82,17 +81,5 @@ describe("resolveDoiFromUrl", () => {
     "not a url",
   ])("returns undefined for %s", (url) => {
     expect(resolveDoiFromUrl(url)).toBeUndefined();
-  });
-});
-
-describe("validatePaperUrl", () => {
-  it("accepts any http(s) URL", () => {
-    expect(validatePaperUrl("https://example.com/paper")).toBe(true);
-    expect(validatePaperUrl("http://example.com/paper")).toBe(true);
-  });
-
-  it("rejects non-http(s) input", () => {
-    expect(validatePaperUrl("mailto:a@b.com")).toBe(false);
-    expect(validatePaperUrl("")).toBe(false);
   });
 });

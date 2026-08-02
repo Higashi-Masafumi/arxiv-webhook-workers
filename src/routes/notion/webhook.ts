@@ -8,7 +8,6 @@ import { IntegrationService } from "../../services/integrationService";
 import { TokenRefreshService } from "../../services/tokenRefreshService";
 import { PaperService } from "../../services/paperService";
 import { NotionDatabaseService } from "../../services/notionDatabaseService";
-import { validatePaperUrl } from "../../utils/paperUrl";
 import { NotFoundError, ValidationError } from "../../utils/errors";
 
 const app = new Hono<HonoEnv>();
@@ -39,8 +38,8 @@ app.post("/", async (c) => {
   }
 
   // 3. 論文 URL のバリデーション
-  // 取得元ごとの対応可否は PaperService が判断するため、ここでは形式のみ確認する
-  if (!validatePaperUrl(paperUrl)) {
+  // 取得できるかは PaperService が判断するため、ここでは形式のみ確認する
+  if (!/^https?:\/\//i.test(paperUrl)) {
     throw new ValidationError("Link property is not a valid http(s) URL");
   }
 

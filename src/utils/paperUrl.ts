@@ -1,5 +1,3 @@
-import { ValidationError } from "./errors";
-
 /**
  * 論文 URL から DOI を求める（純粋関数）
  *
@@ -79,12 +77,8 @@ export function resolveDoiFromUrl(rawUrl: string): string | undefined {
  *   https://arxiv.org/pdf/2301.12345.pdf
  *   https://arxiv.org/html/2301.12345v1
  *   https://arxiv.org/abs/cs/0112017      (旧形式)
- *   https://doi.org/10.48550/arXiv.2301.12345
  */
-function extractArxivIdOrNull(input: URL | string): string | null {
-  const url = typeof input === "string" ? safeParseUrl(input) : input;
-  if (!url) return null;
-
+function extractArxivIdOrNull(url: URL): string | null {
   const host = url.hostname.toLowerCase().replace(/^www\./, "");
 
   if (host === "arxiv.org" || host === "export.arxiv.org" || host === "browse.arxiv.org") {
@@ -93,13 +87,6 @@ function extractArxivIdOrNull(input: URL | string): string | null {
     if (path !== url.pathname) {
       return normalizeArxivId(path);
     }
-  }
-
-  // 既に arXiv DOI の形で渡された場合も ID に戻す（正規化のため）
-  if (host === "doi.org" || host === "dx.doi.org") {
-    const doi = decodeURIComponent(url.pathname.replace(/^\//, ""));
-    const match = doi.match(/^10\.48550\/arxiv\.(.+)$/i);
-    if (match) return normalizeArxivId(match[1]);
   }
 
   return null;
@@ -143,36 +130,6 @@ export function normalizeDoi(value: string | undefined | null): string | undefin
   // 文末の句読点や URL の末尾スラッシュは DOI の一部ではないことが多い
   const doi = match[0].replace(/[.,;:)\]}/]+$/, "");
   return doi.length > 0 ? doi.toLowerCase() : undefined;
-}
-
-/**
- * http(s) URL としてパースする
- */
-function parseHttpUrl(rawUrl: string): URL {
-  let url: URL;
-  try {
-    url = new URL(rawUrl.trim());
-  } catch {
-    throw new ValidationError(`Invalid URL: ${rawUrl}`);
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new ValidationError(`Unsupported URL scheme: ${url.protocol}`);
-  }
-  return url;
-}
-
-/**
- * 論文 URL として受け付けられるか
- *
- * DOI が取れるかは実際に引いてみるまで分からないので、ここでは形式だけ見る。
- */
-export function validatePaperUrl(url: string): boolean {
-  try {
-    parseHttpUrl(url);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function safeParseUrl(value: string): URL | null {
